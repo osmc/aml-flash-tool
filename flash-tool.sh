@@ -24,7 +24,7 @@ show_help()
     echo "Usage      : $1 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location]"
     echo "Example    : $1 --target-out=out/target/product/board"
     echo "Version    : 1.3"
-    echo "Parameters : --target-out => Specify location path where are all the images to burn or path to aml_upgrade_package.img"
+    echo "Parameters : --target-out   => Specify location path where are all the images to burn or path to aml_upgrade_package.img"
     echo "             --parts        => Specify which partitions to burn"
     echo "             --skip-uboot   => Will not burn uboot"
     echo "             --wipe         => Destroy all partitions"

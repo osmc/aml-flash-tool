@@ -13,7 +13,7 @@ After than you can call flash-tool.sh from anywhere, it will give you quick help
 Usage      :  --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location]
 Example    :  --target-out=out/target/product/board
 Version    : 1.3
-Parameters : --target-out => Specify location path where are all the images to burn or path to aml_upgrade_package.img
+Parameters : --target-out   => Specify location path where are all the images to burn or path to aml_upgrade_package.img
              --parts        => Specify which partitions to burn
              --skip-uboot   => Will not burn uboot
              --wipe         => Destroy all partitions
@@ -78,7 +78,7 @@ In this case you can do this :
 
 $ flash-tool.sh --target-out=/path/to/aml_upgrade_package.img \
                 --parts=all \
-                --wipe
+                --wipe \
                 --uboot-file=/path/to/output/u-boot.bin.signed \
                 --dtb-file=/path/to/output/dtb.img.signed \
                 --boot-file=/path/to/output/boot.img.signed \
@@ -88,7 +88,7 @@ You can also burn the efuse in the same way with :
 
 $ flash-tool.sh --target-out=/path/to/aml_upgrade_package.img \
                 --parts=all \
-                --wipe
+                --wipe \
                 --uboot-file=/path/to/output/u-boot.bin.signed \
                 --dtb-file=/path/to/output/dtb.img.signed \
                 --boot-file=/path/to/output/boot.img.signed \

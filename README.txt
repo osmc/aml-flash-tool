@@ -94,3 +94,7 @@ $ flash-tool.sh --target-out=/path/to/aml_upgrade_package.img \
                 --boot-file=/path/to/output/boot.img.signed \
                 --recover-file=/path/to/output/recovery.img.signed \
                 --efuse-file=/path/to/output/pattern.efuse
+
+Enjoy!
+
+Marco (c) Amlogic

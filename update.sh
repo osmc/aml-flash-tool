@@ -7,6 +7,11 @@ wipe=
 reset=
 m8=
 linux=
+efuse_file=
+uboot_file=
+dtb_file=
+boot_file=
+recovery_file=
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -16,16 +21,21 @@ RESET='\033[m'
 # ------
 show_help()
 {
-    echo "Usage      : $1 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8]"
+    echo "Usage      : $1 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location]"
     echo "Example    : $1 --target-out=out/target/product/board"
-    echo "Version    : 1.2"
-    echo "Parameters : --target-out => Specify location path where are all the images to burn"
-    echo "             --parts      => Specify which partitions to burn"
-    echo "             --skip-uboot => Will not burn uboot"
-    echo "             --wipe       => Destroy all partitions"
-    echo "             --reset      => Force reset mode at the end of the burning"
-    echo "             --m8         => For menson M8 chipsets like S805"
-    echo "             --linux      => Specify the image to flash is linux not android"
+    echo "Version    : 1.3"
+    echo "Parameters : --target-out => Specify location path where are all the images to burn or path to aml_upgrade_package.img"
+    echo "             --parts        => Specify which partitions to burn"
+    echo "             --skip-uboot   => Will not burn uboot"
+    echo "             --wipe         => Destroy all partitions"
+    echo "             --reset        => Force reset mode at the end of the burning"
+    echo "             --m8           => For menson M8 chipsets like S805"
+    echo "             --linux        => Specify the image to flash is linux not android"
+    echo "             --efuse-file   => Force efuse OTP burn, use this option carefully "
+    echo "             --uboot-file   => Overload default uboot.bin file to be used"
+    echo "             --dtb-file     => Overload default dtb.img file to be used"
+    echo "             --boot-file    => Overload default boot.img file to be used"
+    echo "             --recover-file => Overload default recovery.img file to be used"
 }
 
 # Check if a given file exists and exit if not
@@ -34,6 +44,7 @@ check_file()
 {
     if [[ ! -f $1 ]]; then
         echo "$1 not found"
+        cleanup
         exit 1
     fi
 }
@@ -42,6 +53,7 @@ check_file()
 # ---------------------
 cleanup()
 {
+    echo -e $RESET
     [[ -d $tmp_dir ]] && rm -rf "$tmp_dir"
     exit 1
 }
@@ -78,6 +90,7 @@ run_update_assert()
     run_update "$@"
     if [[ $? != 0 ]]; then
         echo -e $RED"[KO]"
+        cleanup
         exit 1
     fi
 }
@@ -105,6 +118,21 @@ for opt do
         ;;
     --reset)
         reset="$optval"
+        ;;
+    --efuse-file)
+        efuse_file="$optval"
+        ;;
+    --uboot-file)
+	uboot_file="$optval"
+	;;
+    --dtb-file)
+        dtb_file="$optval"
+        ;;
+    --boot-file)
+        boot_file="$optval"
+        ;;
+    --recovery-file)
+        recovery_file="$optval"
         ;;
     --m8)
         m8=1
@@ -174,6 +202,32 @@ if [ ! -z "$target_img" ]; then
    fi
 fi
 
+# Find update tool location
+# --------------------------
+update_dir=$(dirname `which update`)
+
+# eFuse update
+# ------------
+if [[ $efuse_file != "" ]]; then
+    check_file "$efuse_file"
+    echo -n "Programming efuses "
+    run_update bulkcmd "true"
+    if [[ $? = 0 ]]; then
+        run_update_assert write $efuse_file 0x03000000
+        run_update_assert bulkcmd "efuse amlogic_set 0x03000000"
+        run_update bulkcmd "reset"
+        for i in {1..4}
+        do
+            echo -n "."
+            sleep 1
+        done
+        echo -e $GREEN"[OK]"$RESET
+    else
+        echo -e $RED"[KO]"$RESET
+        exit 1
+    fi
+fi
+
 # Uboot update 
 # ------------
 if [[ -z $skip_uboot ]]; then
@@ -185,12 +239,20 @@ if [[ -z $skip_uboot ]]; then
         ddr=$target_out/ddr_init.bin
         fip=$update_dir/decompressPara_4M.dump
     fi
-    uboot=$target_out/u-boot.bin
-    if [[ $m8 != 1 ]]; then
-        dtb=$target_out/dtb.img
-    else
-        dtb=$target_out/dt.img
+    if [[ -z "$uboot_file" ]]; then
+      uboot_file=$target_out/u-boot.bin;
     fi
+    uboot=$uboot_file
+    if [[ -z "$dtb_file" ]]; then
+      if [[ $m8 != 1 ]]; then
+         dtb=$target_out/dtb.img
+      else
+         dtb=$target_out/dt.img
+      fi
+    else
+      dtb=$dtb_file
+    fi
+
     check_file "$uboot"
     check_file "$dtb"
     check_file "$ddr"
@@ -299,7 +361,10 @@ fi
 # Recovery partition update
 # -------------------------
 if [[ "$parts" =~ all|recovery ]] && [[ $linux != 1 ]]; then
-    recovery=$target_out/recovery.img
+    if [[ -z "$recovery_file" ]]; then
+        recovery_file=$target_out/recovery.img
+    fi
+    recovery=$recovery_file
     check_file "$recovery"
 
     echo -n "Writing recovery image "
@@ -310,7 +375,10 @@ fi
 # Boot partition update
 # ---------------------
 if [[ "$parts" =~ all|boot ]]; then
-    boot=$target_out/boot.img
+    if [[ -z "$boot_file" ]]; then
+        boot_file=$target_out/boot.img
+    fi
+    boot=$boot_file
     check_file "$boot"
 
     echo -n "Writing boot image "

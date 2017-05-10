@@ -441,6 +441,10 @@ echo -n "Terminate update of the board "
 run_update_assert bulkcmd save_setting
 echo -e $GREEN"[OK]"$RESET
 
+# Cleanup
+# -------
+[[ -d $tmp_dir ]] && rm -rf "$tmp_dir"
+
 # Resetting board ? 
 # -----------------
 if [[ -z "$reset" ]]; then

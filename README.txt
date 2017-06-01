@@ -2,17 +2,12 @@ Hi,
 
 This is the flash-tool for Amlogic platforms.
 This flash-tool script rely on update linux tool that need firstly to be installed.
-Please read the file _install_/README before to proceed here.
-
-After you have installed correctly the update binary tool, please ensure the flash-tool is in your path:
-
-$ export PATH=/path/to/flash-tool:$PATH
+Please read the file tools/_install_/README before to proceed here.
 
 After than you can call flash-tool.sh from anywhere, it will give you quick help :
 
-Usage      :  --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location]
-Example    :  --target-out=out/target/product/board
-Version    : 1.3
+Usage      : ./flash-tool.sh --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location] [--password=/path/to/password-hash.bin]
+Version    : 2.0
 Parameters : --target-out   => Specify location path where are all the images to burn or path to aml_upgrade_package.img
              --parts        => Specify which partitions to burn
              --skip-uboot   => Will not burn uboot
@@ -25,7 +20,7 @@ Parameters : --target-out   => Specify location path where are all the images to
              --dtb-file     => Overload default dtb.img file to be used
              --boot-file    => Overload default boot.img file to be used
              --recover-file => Overload default recovery.img file to be used
-
+             --password     => Unlock usb mode using password hash path provided
 
 Before to enter in the details here, let's explain how the connection work with the Amlogic board.
 

@@ -12,18 +12,20 @@ uboot_file=
 dtb_file=
 boot_file=
 recovery_file=
+password=
+secured=
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 RESET='\033[m'
+TOOL_PATH="$(cd $(dirname $0); pwd)"
 
 # Helper
 # ------
 show_help()
 {
-    echo "Usage      : $1 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location]"
-    echo "Example    : $1 --target-out=out/target/product/board"
-    echo "Version    : 1.3"
+    echo "Usage      : $0 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location] [--password=/path/to/password-hash.bin]"
+    echo "Version    : 2.0"
     echo "Parameters : --target-out   => Specify location path where are all the images to burn or path to aml_upgrade_package.img"
     echo "             --parts        => Specify which partitions to burn"
     echo "             --skip-uboot   => Will not burn uboot"
@@ -36,6 +38,7 @@ show_help()
     echo "             --dtb-file     => Overload default dtb.img file to be used"
     echo "             --boot-file    => Overload default boot.img file to be used"
     echo "             --recover-file => Overload default recovery.img file to be used"
+    echo "             --password     => Unlock usb mode using password hash path provided"
 }
 
 # Check if a given file exists and exit if not
@@ -65,7 +68,7 @@ run_update()
     local cmd
     local ret=0
 
-    cmd+="update 2>/dev/null"
+    cmd+="$TOOL_PATH/tools/update 2>/dev/null"
     for arg in "$@"; do
         if [[ "$arg" =~ ' ' ]]; then
             cmd+=" \"$arg\""
@@ -140,6 +143,9 @@ for opt do
     --linux)
         linux=1
         ;;
+    --password)
+        password="$optval"
+        ;;
     *)
         ;;
     esac
@@ -166,27 +172,36 @@ if [[ -z $parts ]]; then
     exit 1
 fi
 
-which update &> /dev/null
-if [[ $? != 0 ]]; then
-    echo "'update' command not found"
-    exit 1
-fi
-
-if ! `update identify | grep -iq firmware`; then
+if ! `$TOOL_PATH/tools/update identify | grep -iq firmware`; then
     echo "Amlogic device not found"
     exit 1
 fi
 
 trap cleanup SIGHUP SIGINT SIGTERM
 
+# Unlock usb mode by password
+# ---------------------------
+if [[ $password != "" ]]; then
+   echo -n "Unlocking usb interface "
+   run_update_assert password $password
+   echo -e $GREEN"[OK]"$RESET
+fi
+
 # Create tmp directory
 # --------------------
 tmp_dir=$(mktemp -d /tmp/aml-XXXX)
 
+# Check if chipset is in secure mode
+# ----------------------------------
+secured=0
+#if [[ $m8 != 1 ]]; then
+#  update read 4 0xc8100228
+#fi
+
 # Unpack image if image is given
 # ------------------------------
 if [ ! -z "$target_img" ]; then
-   aml_image_v2_packer -d $target_img $tmp_dir
+   $TOOL_PATH/tools/aml_image_v2_packer -d $target_img $tmp_dir
    target_out=$tmp_dir
    find $tmp_dir -name '*.PARTITION' -exec sh -c 'mv "$1" "${1%.PARTITION}.img"' _ {} \;
    if [[ $m8 != 1 ]]; then
@@ -202,42 +217,33 @@ if [ ! -z "$target_img" ]; then
    fi
 fi
 
-# Find update tool location
-# --------------------------
-update_dir=$(dirname `which update`)
-
-# eFuse update
-# ------------
-if [[ $efuse_file != "" ]]; then
-    check_file "$efuse_file"
-    echo -n "Programming efuses "
-    run_update bulkcmd "true"
-    if [[ $? = 0 ]]; then
-        run_update_assert write $efuse_file 0x03000000
-        run_update_assert bulkcmd "efuse amlogic_set 0x03000000"
-        run_update bulkcmd "reset"
-        for i in {1..4}
-        do
-            echo -n "."
-            sleep 1
-        done
-        echo -e $GREEN"[OK]"$RESET
-    else
-        echo -e $RED"[KO]"$RESET
-        exit 1
-    fi
+# Enable low power to burn 
+# ------------------------
+echo -n "Rebooting the board "
+run_update_assert tplcmd "echo 12345"
+run_update bulkcmd "low_power"
+if [[ $? = 0 ]]; then
+   run_update_assert bulkcmd "store rom_write 0x03000000 0 16"
+   run_update bulkcmd "reset"
+   for i in {1..8}
+     do
+       echo -n "."
+       sleep 1
+     done
+   echo -e $GREEN"[OK]"$RESET
+else
+   echo -e $GREEN"[OK]"$RESET
 fi
 
 # Uboot update 
 # ------------
 if [[ -z $skip_uboot ]]; then
-    update_dir=$(dirname `which update`)
     if [[ $m8 != 1 ]]; then
-        ddr=$update_dir/usbbl2runpara_ddrinit.bin
-        fip=$update_dir/usbbl2runpara_runfipimg.bin
+        ddr=$TOOL_PATH/tools/usbbl2runpara_ddrinit.bin
+        fip=$TOOL_PATH/tools/usbbl2runpara_runfipimg.bin
     else
         ddr=$target_out/ddr_init.bin
-        fip=$update_dir/decompressPara_4M.dump
+        fip=$TOOL_PATH/tools/decompressPara_4M.dump
     fi
     if [[ -z "$uboot_file" ]]; then
       uboot_file=$target_out/u-boot.bin;
@@ -267,19 +273,6 @@ if [[ -z $skip_uboot ]]; then
     else
         check_file "$target_out/u-boot-comp.bin"
         tpl=$target_out/u-boot-comp.bin
-    fi
-
-    run_update bulkcmd "true"
-    if [[ $? = 0 ]]; then
-        echo -n "Rebooting board "
-        run_update_assert bulkcmd "store rom_write 0x03000000 0 16"
-        run_update bulkcmd "reset"
-        for i in {1..8}
-        do
-            echo -n "."
-            sleep 1
-        done
-    echo -e $GREEN"[OK]"$RESET
     fi
 
     echo -n "Initializing ddr "
@@ -355,6 +348,29 @@ if [[ -z $skip_uboot ]]; then
         echo -n "Writing device tree "
         run_update_assert mwrite "$dtb" mem dtb normal
         echo -e $GREEN"[OK]"$RESET
+    fi
+fi
+
+
+# eFuse update
+# ------------
+if [[ $efuse_file != "" ]]; then
+    check_file "$efuse_file"
+    echo -n "Programming efuses "
+    run_update bulkcmd "true"
+    if [[ $? = 0 ]]; then
+        run_update_assert write $efuse_file 0x03000000
+        run_update_assert bulkcmd "efuse amlogic_set 0x03000000"
+        run_update bulkcmd "reset"
+        for i in {1..4}
+        do
+            echo -n "."
+            sleep 1
+        done
+        echo -e $GREEN"[OK]"$RESET
+    else
+        echo -e $RED"[KO]"$RESET
+        exit 1
     fi
 fi
 

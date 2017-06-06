@@ -304,8 +304,8 @@ if [ ! -z "$target_img" ]; then
       mv $tmp_dir/_aml_dtb.img  $tmp_dir/dtb.img
       mv $tmp_dir/UBOOT.USB     $tmp_dir/u-boot.bin.usb.tpl
       mv $tmp_dir/DDR.USB       $tmp_dir/u-boot.bin.usb.bl2
-      mv $tmp_dir/UBOOT_ENC.USB $tmp_dir/u-boot.bin.encrypt.usb.tpl
-      mv $tmp_dir/DDR_ENC.USB   $tmp_dir/u-boot.bin.encrypt.usb.bl2
+      mv $tmp_dir/UBOOT_ENC.USB $tmp_dir/u-boot.bin.encrypt.usb.tpl &>/dev/null
+      mv $tmp_dir/DDR_ENC.USB   $tmp_dir/u-boot.bin.encrypt.usb.bl2 &>/dev/null
    else
       mv $tmp_dir/meson.dtb $tmp_dir/dt.img
       mv $tmp_dir/UBOOT_COMP.USB $tmp_dir/u-boot-comp.bin

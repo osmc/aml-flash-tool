@@ -14,6 +14,7 @@ boot_file=
 recovery_file=
 password=
 secured=
+destroy=
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -24,7 +25,7 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 # ------
 show_help()
 {
-    echo "Usage      : $0 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location] [--password=/path/to/password-hash.bin]"
+    echo "Usage      : $0 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location] [--password=/path/to/password.bin]"
     echo "Version    : 2.0"
     echo "Parameters : --target-out   => Specify location path where are all the images to burn or path to aml_upgrade_package.img"
     echo "             --parts        => Specify which partitions to burn"
@@ -38,7 +39,8 @@ show_help()
     echo "             --dtb-file     => Overload default dtb.img file to be used"
     echo "             --boot-file    => Overload default boot.img file to be used"
     echo "             --recover-file => Overload default recovery.img file to be used"
-    echo "             --password     => Unlock usb mode using password hash path provided"
+    echo "             --password     => Unlock usb mode using password file provided"
+    echo "             --destroy      => Erase the bootloader and reset the board"
 }
 
 # Check if a given file exists and exit if not
@@ -146,6 +148,9 @@ for opt do
     --password)
         password="$optval"
         ;;
+    --destroy)
+        destroy=1
+        ;;
     *)
         ;;
     esac
@@ -153,59 +158,154 @@ done
 
 # Check parameters
 # ----------------
-if [[ -z $target_out ]]; then
-    show_help
-    exit 1
-fi
+if [[ -z $destroy ]]; then
+   if [[ -z $target_out ]]; then
+      echo "Missing --target-out argument"
+      show_help
+      exit 1
+   fi
 
-if [[ ! -d $target_out ]]; then
-    if [[ ! -f $target_out ]]; then
-        echo "$target_out is not a directory"
-        exit 1
-    else
-	target_img=$target_out
-    fi 	    
-fi
+   if [[ ! -d $target_out ]]; then
+      if [[ ! -f $target_out ]]; then
+         echo "$target_out is not a directory"
+         exit 1
+      else
+         target_img=$target_out
+      fi
+   fi
 
-if [[ -z $parts ]]; then
-    echo "Missing parts argument"
-    exit 1
+   if [[ -z $parts ]]; then
+      echo "Missing --parts argument"
+      exit 1
+   fi
 fi
 
 if ! `$TOOL_PATH/tools/update identify | grep -iq firmware`; then
-    echo "Amlogic device not found"
-    exit 1
+   echo "Amlogic device not found"
+   exit 1
 fi
 
 trap cleanup SIGHUP SIGINT SIGTERM
 
+# Check if the board is locked with a password
+# --------------------------------------------
+need_password=0
+if `$TOOL_PATH/tools/update identify | grep -iq "Password check NG"`; then
+   need_password=1
+fi
+if [[ $need_password == 1 ]]; then
+   if [[ -z $password ]]; then
+     echo "The board is locked with a password, please provide a password using --password option !"
+     exit 1
+   fi
+fi
+
 # Unlock usb mode by password
 # ---------------------------
-if [[ $password != "" ]]; then
-   echo -n "Unlocking usb interface "
-   run_update_assert password $password
-   echo -e $GREEN"[OK]"$RESET
+if [[ $need_password == 1 ]]; then
+   if [[ $password != "" ]]; then
+      echo -n "Unlocking usb interface "
+      run_update_assert password $password
+      if `$TOOL_PATH/tools/update identify | grep -iq "Password check OK"`; then
+         echo -e $GREEN"[OK]"$RESET
+      else
+         echo -e $RED"[KO]"$RESET
+         echo "It seems you provided an incorrect password !"
+         exit 1
+      fi
+   fi
 fi
 
 # Create tmp directory
 # --------------------
-tmp_dir=$(mktemp -d /tmp/aml-XXXX)
+tmp_dir=$(mktemp -d /tmp/aml-flash-tool-XXXX)
 
-# Check if chipset is in secure mode
-# ----------------------------------
+# Should we destroy the boot ?
+# ----------------------------
+if [[ -z $skip_uboot ]]; then
+   run_update tplcmd "echo 12345"
+   run_update bulkcmd "low_power"
+   if [[ $? = 0 ]]; then
+      echo -n "Rebooting the board "
+      run_update bulkcmd "bootloader_is_old"
+      run_update_assert bulkcmd "erase_bootloader"
+      dd if=/dev/zero of=$tmp_dir/null.bin bs=1024 count=1 &>/dev/null
+      run_update_assert write $tmp_dir/null.bin 0x03000000
+      run_update_assert bulkcmd "store rom_write 0x03000000 0 1024"
+      run_update bulkcmd "reset"
+      if [[ $destroy == 1 ]]; then
+        echo -e $GREEN"[OK]"$RESET
+        exit 0
+      fi
+      for i in {1..8}
+         do
+         echo -n "."
+         sleep 1
+      done
+      echo -e $GREEN"[OK]"$RESET
+   else
+     if [[ $destroy == 1 ]]; then
+        echo "Seems board is already in usb mode, nothing to do more..."
+        exit 0
+     fi
+   fi
+fi
+if [[ $destroy == 1 ]]; then
+   exit 0
+fi
+
+# Unlock usb mode by password
+# ---------------------------
+# If we started with usb mode from uboot, the password is already unlocked
+# But just after we reset the board, then fall into rom mode
+# That's why we need to recheck password lock a second time
+need_password=0
+if `$TOOL_PATH/tools/update identify | grep -iq "Password check NG"`; then
+   need_password=1
+fi
+if [[ $need_password == 1 ]]; then
+   if [[ -z $password ]]; then
+     echo "The board is locked with a password, please provide a password using --password option !"
+     exit 1
+   fi
+fi
+if [[ $need_password == 1 ]]; then
+   if [[ $password != "" ]]; then
+      echo -n "Unlocking usb interface "
+      run_update_assert password $password
+      if `$TOOL_PATH/tools/update identify | grep -iq "Password check OK"`; then
+         echo -e $GREEN"[OK]"$RESET
+      else
+         echo -e $RED"[KO]"$RESET
+         echo "It seems you provided an incorrect password !"
+         exit 1
+      fi
+   fi
+fi
+
+# Check if board is secure
+# ------------------------
 secured=0
-#if [[ $m8 != 1 ]]; then
-#  update read 4 0xc8100228
-#fi
+if [[ $m8 != 1 ]]; then
+  value=$((0x`$TOOL_PATH/tools/update 2>/dev/null rreg 4 0xc8100228|grep C8100228|cut -d' ' -f 2` & 0x10))
+  if [[ $value != 0 ]]; then
+    secured=1
+    echo "Board is in secure mode"
+  fi
+fi
 
 # Unpack image if image is given
 # ------------------------------
 if [ ! -z "$target_img" ]; then
-   $TOOL_PATH/tools/aml_image_v2_packer -d $target_img $tmp_dir
+   $TOOL_PATH/tools/aml_image_v2_packer -d $target_img $tmp_dir &>/dev/null
    target_out=$tmp_dir
    find $tmp_dir -name '*.PARTITION' -exec sh -c 'mv "$1" "${1%.PARTITION}.img"' _ {} \;
    if [[ $m8 != 1 ]]; then
-      mv $tmp_dir/_aml_dtb.img $tmp_dir/dtb.img 
+      mv $tmp_dir/_aml_dtb.img  $tmp_dir/dtb.img
+      mv $tmp_dir/UBOOT.USB     $tmp_dir/u-boot.bin.usb.tpl
+      mv $tmp_dir/DDR.USB       $tmp_dir/u-boot.bin.usb.bl2
+      mv $tmp_dir/UBOOT_ENC.USB $tmp_dir/u-boot.bin.encrypt.usb.tpl
+      mv $tmp_dir/DDR_ENC.USB   $tmp_dir/u-boot.bin.encrypt.usb.bl2
    else
       mv $tmp_dir/meson.dtb $tmp_dir/dt.img
       mv $tmp_dir/UBOOT_COMP.USB $tmp_dir/u-boot-comp.bin
@@ -213,26 +313,8 @@ if [ ! -z "$target_img" ]; then
    fi
    mv $tmp_dir/bootloader.img $tmp_dir/u-boot.bin
    if [[ $linux = 1 ]]; then
-      mv $tmp_dir/system.img $tmp_dir/rootfs.ext2.img2simg 
+      mv $tmp_dir/system.img $tmp_dir/rootfs.ext2.img2simg
    fi
-fi
-
-# Enable low power to burn 
-# ------------------------
-echo -n "Rebooting the board "
-run_update_assert tplcmd "echo 12345"
-run_update bulkcmd "low_power"
-if [[ $? = 0 ]]; then
-   run_update_assert bulkcmd "store rom_write 0x03000000 0 16"
-   run_update bulkcmd "reset"
-   for i in {1..8}
-     do
-       echo -n "."
-       sleep 1
-     done
-   echo -e $GREEN"[OK]"$RESET
-else
-   echo -e $GREEN"[OK]"$RESET
 fi
 
 # Uboot update 
@@ -246,7 +328,7 @@ if [[ -z $skip_uboot ]]; then
         fip=$TOOL_PATH/tools/decompressPara_4M.dump
     fi
     if [[ -z "$uboot_file" ]]; then
-      uboot_file=$target_out/u-boot.bin;
+      uboot_file=$target_out/u-boot.bin
     fi
     uboot=$uboot_file
     if [[ -z "$dtb_file" ]]; then
@@ -266,15 +348,19 @@ if [[ -z $skip_uboot ]]; then
     uboot_size=$(stat -L -c %s "$uboot")
 
     if [[ $m8 != 1 ]]; then 
-        bl2=$tmp_dir/u-boot.bl2
-        tpl=$tmp_dir/u-boot.tpl
-        dd if="$uboot" of="$bl2" bs=49152 count=1 &> /dev/null
-        dd if="$uboot" of="$tpl" bs=49152 skip=1 &> /dev/null
+       if [[ $secured == 0 ]]; then
+          bl2=$target_out/u-boot.bin.usb.bl2
+          tpl=$target_out/u-boot.bin.usb.tpl
+       else
+          bl2=$target_out/u-boot.bin.encrypt.usb.bl2
+          tpl=$target_out/u-boot.bin.encrypt.usb.tpl
+       fi
+       check_file "$bl2"
+       check_file "$tpl"
     else
         check_file "$target_out/u-boot-comp.bin"
         tpl=$target_out/u-boot-comp.bin
     fi
-
     echo -n "Initializing ddr "
     if [[ $m8 != 1 ]]; then
         run_update_assert cwr   "$bl2" 0xd9000000
@@ -309,32 +395,39 @@ if [[ -z $skip_uboot ]]; then
         sleep 1
     done
     echo -e $GREEN"[OK]"$RESET
+
+    run_update bulkcmd "low_power"
  
     if [[ $m8 != 1 ]]; then
-        echo -n "Creating partitions "
-        run_update_assert bulkcmd "disk_initial 0"
-        echo -e $GREEN"[OK]"$RESET
-
-	echo -n "Writing u-boot "
-        run_update bulkcmd "store init 1"
-	run_update bulkcmd "amlmmc rescan 1"
-	run_update_assert write "$uboot" 0x03000000
-        run_update_assert bulkcmd "store rom_write 0x03000000 0 $uboot_size"
-        echo -e $GREEN"[OK]"$RESET
-
+        if [[ $secured == 1 ]]; then
+          check_file "$target_out/meson1.dtb"
+        fi
         echo -n "Writing device tree "
-        run_update_assert write "$dtb" 0x03000000
-        run_update_assert bulkcmd "store dtb write 0x03000000"
+        if [[ $secured == 1 ]]; then
+           run_update_assert mwrite "$target_out/meson1.dtb" mem dtb normal
+        else
+           run_update_assert mwrite "$dtb" mem dtb normal
+        fi
         echo -e $GREEN"[OK]"$RESET
 
-        echo -n "Creating partitions "
-        run_update_assert bulkcmd "disk_initial 0"
+        echo -n "Create partitions "
+        if [[ $wipe == 1 ]]; then
+          run_update_assert bulkcmd "disk_initial 1"
+        else
+          run_update_assert bulkcmd "disk_initial 0"
+        fi
+        run_update_assert partition _aml_dtb "$dtb"
+        echo -e $GREEN"[OK]"$RESET
+
+        echo -n "Writing u-boot "
+        run_update_assert write "$uboot" 0x03000000
+        run_update_assert bulkcmd "store rom_write 0x03000000 0 $uboot_size"
         run_update_assert bulkcmd "env default -a"
         run_update_assert bulkcmd "saveenv"
         echo -e $GREEN"[OK]"$RESET
     else
         echo -n "Creating partitions "
-        if [[ $wipe = 1 ]]; then
+        if [[ $wipe == 1 ]]; then
             run_update_assert bulkcmd "disk_initial 3"
         else
             run_update_assert bulkcmd "disk_initial 0"
@@ -348,29 +441,6 @@ if [[ -z $skip_uboot ]]; then
         echo -n "Writing device tree "
         run_update_assert mwrite "$dtb" mem dtb normal
         echo -e $GREEN"[OK]"$RESET
-    fi
-fi
-
-
-# eFuse update
-# ------------
-if [[ $efuse_file != "" ]]; then
-    check_file "$efuse_file"
-    echo -n "Programming efuses "
-    run_update bulkcmd "true"
-    if [[ $? = 0 ]]; then
-        run_update_assert write $efuse_file 0x03000000
-        run_update_assert bulkcmd "efuse amlogic_set 0x03000000"
-        run_update bulkcmd "reset"
-        for i in {1..4}
-        do
-            echo -n "."
-            sleep 1
-        done
-        echo -e $GREEN"[OK]"$RESET
-    else
-        echo -e $RED"[KO]"$RESET
-        exit 1
     fi
 fi
 
@@ -456,6 +526,17 @@ fi
 echo -n "Terminate update of the board "
 run_update_assert bulkcmd save_setting
 echo -e $GREEN"[OK]"$RESET
+
+# eFuse update
+# ------------
+if [[ $efuse_file != "" ]]; then
+   check_file "$efuse_file"
+   echo -n "Programming efuses "
+   run_update_assert write $efuse_file 0x03000000
+   run_update_assert bulkcmd "efuse amlogic_set 0x03000000"
+   echo -e $GREEN"[OK]"$RESET
+   run_update bulkcmd "low_power"
+fi
 
 # Cleanup
 # -------

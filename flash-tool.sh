@@ -26,7 +26,7 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 show_help()
 {
     echo "Usage      : $0 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location] [--password=/path/to/password.bin]"
-    echo "Version    : 2.0"
+    echo "Version    : 2.1"
     echo "Parameters : --target-out   => Specify location path where are all the images to burn or path to aml_upgrade_package.img"
     echo "             --parts        => Specify which partitions to burn"
     echo "             --skip-uboot   => Will not burn uboot"
@@ -406,7 +406,15 @@ if [[ -z $skip_uboot ]]; then
         if [[ $secured == 1 ]]; then
            run_update_assert mwrite "$target_out/meson1.dtb" mem dtb normal
         else
-           run_update_assert mwrite "$dtb" mem dtb normal
+           # We could be in the case that $dtb is signed but the board is not yet secure
+           # So need to load non secure dtb here in all cases
+           headstring=`head -c 4 $dtb`
+           if [[ $headstring == "@AML" ]]; then
+              check_file "$target_out/meson1.dtb"
+              run_update_assert mwrite "$target_out/meson1.dtb" mem dtb normal
+           else
+              run_update_assert mwrite "$dtb" mem dtb normal
+           fi
         fi
         echo -e $GREEN"[OK]"$RESET
 

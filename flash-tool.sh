@@ -5,7 +5,7 @@ parts=
 skip_uboot=
 wipe=
 reset=
-m8=
+soc=
 linux=
 efuse_file=
 uboot_file=
@@ -25,14 +25,14 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 # ------
 show_help()
 {
-    echo "Usage      : $0 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location] [--password=/path/to/password.bin]"
-    echo "Version    : 2.1"
+    echo "Usage      : $0 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--soc=<m8|axg|gxl>] [*-file=/path/to/file/location] [--password=/path/to/password.bin]"
+    echo "Version    : 3.0"
     echo "Parameters : --target-out   => Specify location path where are all the images to burn or path to aml_upgrade_package.img"
     echo "             --parts        => Specify which partitions to burn"
     echo "             --skip-uboot   => Will not burn uboot"
     echo "             --wipe         => Destroy all partitions"
     echo "             --reset        => Force reset mode at the end of the burning"
-    echo "             --m8           => For menson M8 chipsets like S805"
+    echo "             --soc          => Force soc type (gxl=S905/S912,axg=A113,m8=S805...)"
     echo "             --linux        => Specify the image to flash is linux not android"
     echo "             --efuse-file   => Force efuse OTP burn, use this option carefully "
     echo "             --uboot-file   => Overload default uboot.bin file to be used"
@@ -139,8 +139,8 @@ for opt do
     --recovery-file)
         recovery_file="$optval"
         ;;
-    --m8)
-        m8=1
+    --soc)
+        soc="$optval"
         ;;
     --linux)
         linux=1
@@ -178,8 +178,18 @@ if [[ -z $destroy ]]; then
       echo "Missing --parts argument"
       exit 1
    fi
+   if [[ "$parts" != "all" ]] && [[ "$parts" != "none" ]] && [[ "$parts" != "logo" ]] && [[ "$parts" != "recovery" ]] && [[ "$parts" != "boot" ]] && [[ "$parts" != "system" ]]; then
+      echo "Invalid --parts argument, should be either [all,none,logo,recovery,boot,system]" 
+      exit 1
+   fi
 fi
-
+if [[ -z $soc ]]; then
+   soc=gxl
+fi
+if [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "m8" ]]; then
+   echo "Soc type is invalid, should be either gxl,axg,m8"
+   exit 1
+fi
 if ! `$TOOL_PATH/tools/update identify | grep -iq firmware`; then
    echo "Amlogic device not found"
    exit 1
@@ -220,6 +230,11 @@ fi
 # --------------------
 tmp_dir=$(mktemp -d /tmp/aml-flash-tool-XXXX)
 
+# Identify chipset
+# ----------------
+#value=$((0x`$TOOL_PATH/tools/update 2>/dev/null rreg 4 0xc0807d4c|grep C0807D4C|cut -d' ' -f 2` & 0x10))
+#echo $value
+
 # Should we destroy the boot ?
 # ----------------------------
 if [[ -z $skip_uboot ]]; then
@@ -229,9 +244,7 @@ if [[ -z $skip_uboot ]]; then
       echo -n "Rebooting the board "
       run_update bulkcmd "bootloader_is_old"
       run_update_assert bulkcmd "erase_bootloader"
-      dd if=/dev/zero of=$tmp_dir/null.bin bs=1024 count=1 &>/dev/null
-      run_update_assert write $tmp_dir/null.bin 0x03000000
-      run_update_assert bulkcmd "store rom_write 0x03000000 0 1024"
+      run_update_assert bulkcmd "store erase boot"
       run_update bulkcmd "reset"
       if [[ $destroy == 1 ]]; then
         echo -e $GREEN"[OK]"$RESET
@@ -286,12 +299,16 @@ fi
 # Check if board is secure
 # ------------------------
 secured=0
-if [[ $m8 != 1 ]]; then
-  value=$((0x`$TOOL_PATH/tools/update 2>/dev/null rreg 4 0xc8100228|grep C8100228|cut -d' ' -f 2` & 0x10))
-  if [[ $value != 0 ]]; then
-    secured=1
-    echo "Board is in secure mode"
-  fi
+value=0
+if [[ $soc == "gxl" ]]; then
+   value=$((0x`$TOOL_PATH/tools/update 2>/dev/null rreg 4 0xc8100228|grep C8100228|cut -d' ' -f 2` & 0x10))
+fi
+if [[ $soc == "axg" ]]; then
+   value=$((0x`$TOOL_PATH/tools/update 2>/dev/null rreg 4 0xff800228|grep FF800228|cut -d' ' -f 2` & 0x10))
+fi
+if [[ $value != 0 ]]; then
+   secured=1
+   echo "Board is in secure mode"
 fi
 
 # Unpack image if image is given
@@ -300,13 +317,14 @@ if [ ! -z "$target_img" ]; then
    $TOOL_PATH/tools/aml_image_v2_packer -d $target_img $tmp_dir &>/dev/null
    target_out=$tmp_dir
    find $tmp_dir -name '*.PARTITION' -exec sh -c 'mv "$1" "${1%.PARTITION}.img"' _ {} \;
-   if [[ $m8 != 1 ]]; then
+   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
       mv $tmp_dir/_aml_dtb.img  $tmp_dir/dtb.img
       mv $tmp_dir/UBOOT.USB     $tmp_dir/u-boot.bin.usb.tpl
       mv $tmp_dir/DDR.USB       $tmp_dir/u-boot.bin.usb.bl2
       mv $tmp_dir/UBOOT_ENC.USB $tmp_dir/u-boot.bin.encrypt.usb.tpl &>/dev/null
       mv $tmp_dir/DDR_ENC.USB   $tmp_dir/u-boot.bin.encrypt.usb.bl2 &>/dev/null
-   else
+   fi
+   if [[ $soc == "m8" ]]; then
       mv $tmp_dir/meson.dtb $tmp_dir/dt.img
       mv $tmp_dir/UBOOT_COMP.USB $tmp_dir/u-boot-comp.bin
       mv $tmp_dir/DDR.USB $tmp_dir/ddr_init.bin
@@ -320,136 +338,150 @@ fi
 # Uboot update 
 # ------------
 if [[ -z $skip_uboot ]]; then
-    if [[ $m8 != 1 ]]; then
-        ddr=$TOOL_PATH/tools/usbbl2runpara_ddrinit.bin
-        fip=$TOOL_PATH/tools/usbbl2runpara_runfipimg.bin
-    else
-        ddr=$target_out/ddr_init.bin
-        fip=$TOOL_PATH/tools/decompressPara_4M.dump
-    fi
-    if [[ -z "$uboot_file" ]]; then
+   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+      ddr=$TOOL_PATH/tools/usbbl2runpara_ddrinit.bin
+      fip=$TOOL_PATH/tools/usbbl2runpara_runfipimg.bin
+   fi
+   if [[ $soc == "m8" ]]; then
+      ddr=$target_out/ddr_init.bin
+      fip=$TOOL_PATH/tools/decompressPara_4M.dump
+   fi
+   if [[ -z "$uboot_file" ]]; then
       uboot_file=$target_out/u-boot.bin
-    fi
-    uboot=$uboot_file
-    if [[ -z "$dtb_file" ]]; then
-      if [[ $m8 != 1 ]]; then
+   fi
+   uboot=$uboot_file
+   if [[ -z "$dtb_file" ]]; then
+      if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
          dtb=$target_out/dtb.img
-      else
+      fi
+      if [[ $soc == "m8" ]]; then
          dtb=$target_out/dt.img
       fi
-    else
+   else
       dtb=$dtb_file
-    fi
+   fi
 
-    check_file "$uboot"
-    check_file "$dtb"
-    check_file "$ddr"
-    check_file "$fip"
-    uboot_size=$(stat -L -c %s "$uboot")
+   check_file "$uboot"
+   check_file "$dtb"
+   check_file "$ddr"
+   check_file "$fip"
 
-    if [[ $m8 != 1 ]]; then 
-       if [[ $secured == 0 ]]; then
-          bl2=$target_out/u-boot.bin.usb.bl2
-          tpl=$target_out/u-boot.bin.usb.tpl
-       else
-          bl2=$target_out/u-boot.bin.encrypt.usb.bl2
-          tpl=$target_out/u-boot.bin.encrypt.usb.tpl
-       fi
-       check_file "$bl2"
-       check_file "$tpl"
-    else
-        check_file "$target_out/u-boot-comp.bin"
-        tpl=$target_out/u-boot-comp.bin
-    fi
-    echo -n "Initializing ddr "
-    if [[ $m8 != 1 ]]; then
-        run_update_assert cwr   "$bl2" 0xd9000000
-        run_update_assert write "$ddr" 0xd900c000
-        run_update_assert run          0xd9000000
-    else
-        run_update_assert cwr "$ddr"   0xd9000000
-        run_update_assert run          0xd9000030
-    fi
-    for i in {1..8}
-    do
-        echo -n "."
-        sleep 1
-    done
-    echo -e $GREEN"[OK]"$RESET
+   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+      if [[ $secured == 0 ]]; then
+         bl2=$target_out/u-boot.bin.usb.bl2
+         tpl=$target_out/u-boot.bin.usb.tpl
+      else
+         bl2=$target_out/u-boot.bin.encrypt.usb.bl2
+         tpl=$target_out/u-boot.bin.encrypt.usb.tpl
+      fi
+      check_file "$bl2"
+      check_file "$tpl"
+   fi
+   if [[ $soc == "m8" ]]; then
+      check_file "$target_out/u-boot-comp.bin"
+      tpl=$target_out/u-boot-comp.bin
+   fi
+   echo -n "Initializing ddr "
+   if [[ $soc == "gxl" ]]; then
+      run_update_assert cwr   "$bl2" 0xd9000000
+      run_update_assert write "$ddr" 0xd900c000
+      run_update_assert run          0xd9000000
+   fi
+   if [[ $soc == "axg" ]]; then
+      run_update_assert cwr   "$bl2" 0xfffc0000
+      run_update_assert write "$ddr" 0xfffcc000
+      run_update_assert run          0xfffc0000
+   fi
+   if [[ $soc == "m8" ]]; then
+      run_update_assert cwr "$ddr"   0xd9000000
+      run_update_assert run          0xd9000030
+   fi
+   for i in {1..8}
+   do
+       echo -n "."
+       sleep 1
+   done
+   echo -e $GREEN"[OK]"$RESET
 
-    echo -n "Running u-boot "
-    if [[ $m8 != 1 ]]; then
-        run_update_assert write "$bl2" 0xd9000000
-        run_update_assert write "$fip" 0xd900c000 # tell bl2 to jump to tpl, aka u-boot
-        run_update_assert write "$tpl" 0x0200c000
-        run_update_assert run          0xd9000000
-    else
-        run_update_assert write "$fip" 0xd9010000
-        run_update_assert write "$tpl" 0x00400000
-        run_update_assert run          0xd9000030
-        run_update_assert run          0x10000000
-    fi
-    for i in {1..8}
-    do
-        echo -n "."
-        sleep 1
-    done
-    echo -e $GREEN"[OK]"$RESET
+   echo -n "Running u-boot "
+   if [[ $soc == "gxl" ]]; then
+      run_update_assert write "$bl2" 0xd9000000
+      run_update_assert write "$fip" 0xd900c000 # tell bl2 to jump to tpl, aka u-boot
+      run_update_assert write "$tpl" 0x0200c000
+      run_update_assert run          0xd9000000
+   fi
+   if [[ $soc == "axg" ]]; then
+      run_update_assert write "$bl2" 0xfffc0000
+      run_update_assert write "$fip" 0xfffcc000 # tell bl2 to jump to tpl, aka u-boot
+      run_update_assert write "$tpl" 0x0200c000
+      run_update_assert run          0xfffc0000
+   fi
+   if [[ $soc == "m8" ]]; then
+      run_update_assert write "$fip" 0xd9010000
+      run_update_assert write "$tpl" 0x00400000
+      run_update_assert run          0xd9000030
+      run_update_assert run          0x10000000
+   fi
+   for i in {1..8}
+   do
+       echo -n "."
+       sleep 1
+   done
+   echo -e $GREEN"[OK]"$RESET
 
-    run_update bulkcmd "low_power"
- 
-    if [[ $m8 != 1 ]]; then
-        if [[ $secured == 1 ]]; then
-          check_file "$target_out/meson1.dtb"
-        fi
-        echo -n "Writing device tree "
-        if [[ $secured == 1 ]]; then
-           run_update_assert mwrite "$target_out/meson1.dtb" mem dtb normal
-        else
-           # We could be in the case that $dtb is signed but the board is not yet secure
-           # So need to load non secure dtb here in all cases
-           headstring=`head -c 4 $dtb`
-           if [[ $headstring == "@AML" ]]; then
-              check_file "$target_out/meson1.dtb"
-              run_update_assert mwrite "$target_out/meson1.dtb" mem dtb normal
-           else
-              run_update_assert mwrite "$dtb" mem dtb normal
-           fi
-        fi
-        echo -e $GREEN"[OK]"$RESET
+   run_update bulkcmd "low_power"
 
-        echo -n "Create partitions "
-        if [[ $wipe == 1 ]]; then
-          run_update_assert bulkcmd "disk_initial 1"
-        else
-          run_update_assert bulkcmd "disk_initial 0"
-        fi
-        run_update_assert partition _aml_dtb "$dtb"
-        echo -e $GREEN"[OK]"$RESET
+   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+      if [[ $secured == 1 ]]; then
+         check_file "$target_out/meson1.dtb"
+      fi
+      echo -n "Writing device tree "
+      if [[ $secured == 1 ]]; then
+         run_update_assert mwrite "$target_out/meson1.dtb" mem dtb normal
+      else
+         # We could be in the case that $dtb is signed but the board is not yet secure
+         # So need to load non secure dtb here in all cases
+         headstring=`head -c 4 $dtb`
+         if [[ $headstring == "@AML" ]]; then
+            check_file "$target_out/meson1.dtb"
+            run_update_assert mwrite "$target_out/meson1.dtb" mem dtb normal
+         else
+            run_update_assert mwrite "$dtb" mem dtb normal
+         fi
+      fi
+      echo -e $GREEN"[OK]"$RESET
 
-        echo -n "Writing u-boot "
-        run_update_assert write "$uboot" 0x03000000
-        run_update_assert bulkcmd "store rom_write 0x03000000 0 $uboot_size"
-        run_update_assert bulkcmd "env default -a"
-        run_update_assert bulkcmd "saveenv"
-        echo -e $GREEN"[OK]"$RESET
-    else
-        echo -n "Creating partitions "
-        if [[ $wipe == 1 ]]; then
-            run_update_assert bulkcmd "disk_initial 3"
-        else
-            run_update_assert bulkcmd "disk_initial 0"
-        fi
-        echo -e $GREEN"[OK]"$RESET
+      echo -n "Create partitions "
+      if [[ $wipe == 1 ]]; then
+         run_update_assert bulkcmd "disk_initial 1"
+      else
+         run_update_assert bulkcmd "disk_initial 0"
+      fi
+      run_update_assert partition _aml_dtb "$dtb"
+      echo -e $GREEN"[OK]"$RESET
 
-        echo -n "Writing u-boot "
-        run_update_assert partition bootloader "$uboot"
-        echo -e $GREEN"[OK]"$RESET
+      echo -n "Writing u-boot "
+      run_update_assert partition bootloader "$uboot"
+      run_update_assert bulkcmd "env default -a"
+      run_update_assert bulkcmd "saveenv"
+      echo -e $GREEN"[OK]"$RESET
+   else
+      echo -n "Creating partitions "
+      if [[ $wipe == 1 ]]; then
+         run_update_assert bulkcmd "disk_initial 3"
+      else
+         run_update_assert bulkcmd "disk_initial 0"
+      fi
+      echo -e $GREEN"[OK]"$RESET
 
-        echo -n "Writing device tree "
-        run_update_assert mwrite "$dtb" mem dtb normal
-        echo -e $GREEN"[OK]"$RESET
-    fi
+      echo -n "Writing u-boot "
+      run_update_assert partition bootloader "$uboot"
+      echo -e $GREEN"[OK]"$RESET
+
+      echo -n "Writing device tree "
+      run_update_assert mwrite "$dtb" mem dtb normal
+      echo -e $GREEN"[OK]"$RESET
+   fi
 fi
 
 # Recovery partition update
@@ -491,7 +523,11 @@ if [[ "$parts" =~ all|system ]]; then
     check_file "$system"
 
     echo -n "Writing system image "
-    run_update_assert partition system "$system"
+    if [[ $soc == "axg" ]]; then
+       run_update_assert partition system "$system" ubifs
+    else
+       run_update_assert partition system "$system"
+    fi
     echo -e $GREEN"[OK]"$RESET
 fi
 
@@ -501,14 +537,18 @@ if [[ "$parts" =~ all|logo ]]; then
     logo=$target_out/logo.img
     if [[ -f $logo ]]; then
         echo -n "Writing logo image "
-        run_update_assert partition logo "$logo"
+        if [[ $soc == "axg" ]]; then
+           run_update_assert partition logo "$logo" ubifs
+        else
+           run_update_assert partition logo "$logo"
+        fi
         echo -e $GREEN"[OK]"$RESET
     fi
 fi
 
 # Data and cache partitions wiping
 # --------------------------------
-if [[ $m8 != 1 ]] && [[ $linux != 1 ]]; then
+if [[ $soc != "m8" ]] && [[ $linux != 1 ]]; then
     if [[ $wipe = 1 ]]; then
         echo -n "Wiping data partition "
         run_update_assert bulkcmd "amlmmc erase data"

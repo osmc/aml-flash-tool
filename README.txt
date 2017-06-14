@@ -6,14 +6,14 @@ Please read the file tools/_install_/README before to proceed here.
 
 After than you can call flash-tool.sh from anywhere, it will give you quick help :
 
-Usage      : ./flash-tool.sh --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--m8] [*-file=/path/to/file/location] [--password=/path/to/password.bin]
+Usage      : ./flash-tool.sh --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--soc=<gxl|axg|m8>] [*-file=/path/to/file/location] [--password=/path/to/password.bin]
 Version    : 2.0
 Parameters : --target-out   => Specify location path where are all the images to burn or path to aml_upgrade_package.img
              --parts        => Specify which partitions to burn
              --skip-uboot   => Will not burn uboot
              --wipe         => Destroy all partitions
              --reset        => Force reset mode at the end of the burning
-             --m8           => For menson M8 chipsets like S805
+             --soc          => Force soc type (gxl=S905/S912,axg=A113,m8=S805...)
              --linux        => Specify the image to flash is linux not android
              --efuse-file   => Force efuse OTP burn, use this option carefully
              --uboot-file   => Overload default uboot.bin file to be used
@@ -56,10 +56,6 @@ $ flash-tool.sh --target-out=/path/to/aml_upgrade_package.img --parts=all --wipe
 Add the --linux option if you are flashing a linux env :
 
 $ flash-tool.sh --target-out=/path/to/aml_upgrade_package.img --parts=all --wipe --linux
-
-If you are working on S805 Meson8 chipsets, please added the --m8 option
-
-$ flash-tool.sh --target-out=/path/to/aml_upgrade_package.img --parts=all --wipe --linux --m8
 
 Also sometimes, it could be nice to update only some partitions but not all of them.
 It can be done using the --parts parameter. For example here, we just reflash the system android partition with :

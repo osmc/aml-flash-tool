@@ -26,7 +26,7 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 show_help()
 {
     echo "Usage      : $0 --target-out=<aosp output directory> --parts=<all|none|logo|recovery|boot|system> [--skip-uboot] [--wipe] [--reset=<y|n>] [--linux] [--soc=<m8|axg|gxl>] [*-file=/path/to/file/location] [--password=/path/to/password.bin]"
-    echo "Version    : 3.0"
+    echo "Version    : 3.1"
     echo "Parameters : --target-out   => Specify location path where are all the images to burn or path to aml_upgrade_package.img"
     echo "             --parts        => Specify which partitions to burn"
     echo "             --skip-uboot   => Will not burn uboot"
@@ -190,7 +190,7 @@ if [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "m8" ]]; then
    echo "Soc type is invalid, should be either gxl,axg,m8"
    exit 1
 fi
-if ! `$TOOL_PATH/tools/update identify | grep -iq firmware`; then
+if ! `$TOOL_PATH/tools/update identify 7 | grep -iq firmware`; then
    echo "Amlogic device not found"
    exit 1
 fi
@@ -200,7 +200,7 @@ trap cleanup SIGHUP SIGINT SIGTERM
 # Check if the board is locked with a password
 # --------------------------------------------
 need_password=0
-if `$TOOL_PATH/tools/update identify | grep -iq "Password check NG"`; then
+if `$TOOL_PATH/tools/update identify 7 | grep -iq "Password check NG"`; then
    need_password=1
 fi
 if [[ $need_password == 1 ]]; then
@@ -216,7 +216,7 @@ if [[ $need_password == 1 ]]; then
    if [[ $password != "" ]]; then
       echo -n "Unlocking usb interface "
       run_update_assert password $password
-      if `$TOOL_PATH/tools/update identify | grep -iq "Password check OK"`; then
+      if `$TOOL_PATH/tools/update identify 7 | grep -iq "Password check OK"`; then
          echo -e $GREEN"[OK]"$RESET
       else
          echo -e $RED"[KO]"$RESET
@@ -229,11 +229,6 @@ fi
 # Create tmp directory
 # --------------------
 tmp_dir=$(mktemp -d /tmp/aml-flash-tool-XXXX)
-
-# Identify chipset
-# ----------------
-#value=$((0x`$TOOL_PATH/tools/update 2>/dev/null rreg 4 0xc0807d4c|grep C0807D4C|cut -d' ' -f 2` & 0x10))
-#echo $value
 
 # Should we destroy the boot ?
 # ----------------------------
@@ -273,7 +268,7 @@ fi
 # But just after we reset the board, then fall into rom mode
 # That's why we need to recheck password lock a second time
 need_password=0
-if `$TOOL_PATH/tools/update identify | grep -iq "Password check NG"`; then
+if `$TOOL_PATH/tools/update identify 7 | grep -iq "Password check NG"`; then
    need_password=1
 fi
 if [[ $need_password == 1 ]]; then
@@ -286,7 +281,7 @@ if [[ $need_password == 1 ]]; then
    if [[ $password != "" ]]; then
       echo -n "Unlocking usb interface "
       run_update_assert password $password
-      if `$TOOL_PATH/tools/update identify | grep -iq "Password check OK"`; then
+      if `$TOOL_PATH/tools/update identify 7 | grep -iq "Password check OK"`; then
          echo -e $GREEN"[OK]"$RESET
       else
          echo -e $RED"[KO]"$RESET
@@ -296,14 +291,35 @@ if [[ $need_password == 1 ]]; then
    fi
 fi
 
+# Read chip id
+# ------------
+#if [[ "$soc" == "auto" ]]; then
+#  echo -n "Identify chipset type "
+#  value=`$TOOL_PATH/tools/update chipid|grep ChipID|cut -d ':' -f2|xxd -r -p|cut -c1-6`
+#  echo $value
+#  if [[ "$value" == "AMLGXL" ]]; then
+#     soc=gxl
+#  fi
+#  if [[ "$value" == "AMLAXG" ]]; then
+#     soc=axg
+#  fi
+#  if [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "m8" ]]; then
+#     echo -e $RED"[KO]"$RESET
+#     echo "Unable to identify chipset, Try by forcing it manually with --soc=<gxl,axg,m8>"
+#     exit 1
+#  else
+#     echo -e $GREEN"["$value"]"$RESET
+#  fi
+#fi
+
 # Check if board is secure
 # ------------------------
 secured=0
 value=0
-if [[ $soc == "gxl" ]]; then
+if [[ "$soc" == "gxl" ]]; then
    value=$((0x`$TOOL_PATH/tools/update 2>/dev/null rreg 4 0xc8100228|grep C8100228|cut -d' ' -f 2` & 0x10))
 fi
-if [[ $soc == "axg" ]]; then
+if [[ "$soc" == "axg" ]]; then
    value=$((0x`$TOOL_PATH/tools/update 2>/dev/null rreg 4 0xff800228|grep FF800228|cut -d' ' -f 2` & 0x10))
 fi
 if [[ $value != 0 ]]; then

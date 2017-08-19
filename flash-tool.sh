@@ -8,8 +8,9 @@ soc=
 efuse_file=
 password=
 destroy=
-debug=0
 update_return=
+debug=0
+simu=0
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -21,14 +22,15 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 # ------
 show_help()
 {
-    echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl>] [efuse-file=/path/to/file/location] [--password=/path/to/password.bin]"
-    echo "Version    : 4.0"
+    echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
+    echo "Version    : 4.1"
     echo "Parameters : --img        => Specify location path to aml_upgrade_package.img"
     echo "             --parts      => Specify which partition to burn"
     echo "             --wipe       => Destroy all partitions"
     echo "             --reset      => Force reset mode at the end of the burning"
     echo "             --soc        => Force soc type (gxl=S905/S912,axg=A113,m8=S805/A111)"
     echo "             --efuse-file => Force efuse OTP burn, use this option carefully "
+    echo "             --*-file     => Force overload of partition files"
     echo "             --password   => Unlock usb mode using password file provided"
     echo "             --destroy    => Erase the bootloader and reset the board"
 }
@@ -37,10 +39,12 @@ show_help()
 # --------------------------------------------
 check_file()
 {
-    if [[ ! -f $1 ]]; then
-        echo "$1 not found"
-        cleanup
-        exit 1
+    if [[ "$simu" != "1" ]]; then
+       if [[ ! -f $1 ]]; then
+          echo "$1 not found"
+          cleanup
+          exit 1
+       fi
     fi
 }
 
@@ -51,6 +55,10 @@ cleanup()
     echo -e $RESET
     print_debug "Cleanup"
     [[ -d $tmp_dir ]] && rm -rf "$tmp_dir"
+}
+cleanup_trap()
+{
+    cleanup
     exit 1
 }
 
@@ -80,7 +88,9 @@ run_update_return()
 
     update_return=""
     print_debug "\nCommand ->$CYAN $cmd $RESET"
-    update_return=`eval $cmd`
+    if [[ "$simu" != "1" ]]; then
+       update_return=`eval $cmd`
+    fi
     print_debug "- Results ---------------------------------------------------"
     print_debug "$RED $update_return $RESET"
     print_debug "-------------------------------------------------------------"
@@ -153,6 +163,13 @@ for opt do
         debug=1
         ;;
     *)
+        if [[ ${opt%=*} == "--"*"-file" ]]; then
+           newvar=`echo ${opt%=*} | sed 's/--//' | sed 's/-file/_file/'`
+           newvar_type=$newvar"_type"
+           declare "${newvar}"="`echo $optval|awk -F',' '{print $1}'`"
+           declare "${newvar_type}"="`echo $optval|awk -F',' '{print $2}'`"
+           print_debug "$newvar=${!newvar} $newvar_type=${!newvar_type}"
+        fi
         ;;
     esac
 done
@@ -178,14 +195,16 @@ if [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "m8" ]]; then
    exit 1
 fi
 run_update_return identify 7
-if ! `echo $update_return | grep -iq firmware`; then
-   echo "Amlogic device not found"
-   exit 1
+if [[ "$simu" != "1" ]]; then
+   if ! `echo $update_return | grep -iq firmware`; then
+      echo "Amlogic device not found"
+      exit 1
+   fi
 fi
 
 # Set trap
 # --------
-trap cleanup SIGHUP SIGINT SIGTERM
+trap cleanup_trap SIGHUP SIGINT SIGTERM
 
 # Check if the board is locked with a password
 # --------------------------------------------
@@ -239,6 +258,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
       run_update bulkcmd "reset"
       if [[ $destroy == 1 ]]; then
         echo -e $GREEN"[OK]"$RESET
+        cleanup
         exit 0
       fi
       for i in {1..8}
@@ -250,11 +270,13 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
    else
      if [[ $destroy == 1 ]]; then
         echo "Seems board is already in usb mode, nothing to do more..."
+        cleanup
         exit 0
      fi
    fi
 fi
 if [[ $destroy == 1 ]]; then
+   cleanup
    exit 0
 fi
 
@@ -270,8 +292,9 @@ if `echo $update_return | grep -iq "Password check NG"`; then
 fi
 if [[ $need_password == 1 ]]; then
    if [[ -z $password ]]; then
-     echo "The board is locked with a password, please provide a password using --password option !"
-     exit 1
+      echo "The board is locked with a password, please provide a password using --password option !"
+      cleanup
+      exit 1
    fi
 fi
 if [[ $need_password == 1 ]]; then
@@ -284,6 +307,7 @@ if [[ $need_password == 1 ]]; then
       else
          echo -e $RED"[KO]"$RESET
          echo "It seems you provided an incorrect password !"
+         cleanup
          exit 1
       fi
    fi
@@ -304,6 +328,7 @@ fi
 #  if [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "m8" ]]; then
 #     echo -e $RED"[KO]"$RESET
 #     echo "Unable to identify chipset, Try by forcing it manually with --soc=<gxl,axg,m8>"
+#     cleanup
 #     exit 1
 #  else
 #     echo -e $GREEN"["$value"]"$RESET
@@ -320,7 +345,7 @@ if [[ "$soc" == "gxl" ]]; then
    print_debug "0xc8100228      = $value"
    value=$(($value & 0x10))
    print_debug "Secure boot bit = $value"
-   fi
+fi
 if [[ "$soc" == "axg" ]]; then
    run_update_return rreg 4 0xff800228
    value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
@@ -335,7 +360,15 @@ fi
 
 # Unpack image if image is given
 # ------------------------------
-$TOOL_PATH/tools/aml_image_v2_packer -d $target_img $tmp_dir &>/dev/null
+echo -n "Unpacking image "
+return_value=`$TOOL_PATH/tools/aml_image_v2_packer -d $target_img $tmp_dir`
+print_debug "\n$return_value"
+if [[ -z `echo $return_value|grep "Image unpack OK!"` ]]; then
+   echo -e $RED"[KO]"$RESET
+   cleanup
+   exit 1
+fi
+echo -e $GREEN"[OK]"$RESET
 print_debug ""
 print_debug "Parsing image configuration files"
 print_debug "---------------------------------"
@@ -405,24 +438,28 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
       fip=$TOOL_PATH/tools/decompressPara_4M.dump
    fi
 
-   for i in $(seq 0 `expr $nb_partitions - 1`)
-   do
-   if [[ "${partitions_name[$i]}" == "bootloader" ]]; then
-      bootloader_file=$tmp_dir/${partitions_file[$i]}
-      break
-   fi
-   done
-   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+   if [[ -z $bootloader_file ]]; then
       for i in $(seq 0 `expr $nb_partitions - 1`)
       do
-      if [[ "${partitions_name[$i]}" == "_aml_dtb" ]]; then
-         dtb_file=$tmp_dir/${partitions_file[$i]}
+      if [[ "${partitions_name[$i]}" == "bootloader" ]]; then
+         bootloader_file=$tmp_dir/${partitions_file[$i]}
          break
       fi
       done
    fi
-   if [[ $soc == "m8" ]]; then
-      dtb_file=$tmp_dir/$dtb_meson_filename
+   if [[ -z $dtb_file ]]; then
+      if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+         for i in $(seq 0 `expr $nb_partitions - 1`)
+         do
+         if [[ "${partitions_name[$i]}" == "_aml_dtb" ]]; then
+            dtb_file=$tmp_dir/${partitions_file[$i]}
+            break
+         fi
+         done
+      fi
+      if [[ $soc == "m8" ]]; then
+         dtb_file=$tmp_dir/$dtb_meson_filename
+      fi
    fi
 
    print_debug "Bootloader/DTB files"
@@ -444,9 +481,10 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
          bl2=$tmp_dir/$ddr_enc_filename
          tpl=$tmp_dir/$uboot_enc_filename
          if [[ -z "$ddr_enc_filename" ]] || [[ -z "$uboot_enc_filename" ]]; then
-           echo "Your board is secured but the image you want to flash does not contain any signed bootloader !"
-           echo "Please check, flashing can't continue..."
-           exit 1
+            echo "Your board is secured but the image you want to flash does not contain any signed bootloader !"
+            echo "Please check, flashing can't continue..."
+            cleanup
+            exit 1
          fi
       fi
       check_file "$bl2"
@@ -557,7 +595,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
       echo -e $GREEN"[OK]"$RESET
 
       echo -n "Writing device tree "
-      run_update_assert mwrite $tmp_dir/$dtb_meson_filename mem dtb normal
+      run_update_assert mwrite $dtb_file mem dtb normal
       echo -e $GREEN"[OK]"$RESET
    fi
 fi
@@ -566,12 +604,12 @@ fi
 # --------------------------------
 if [[ $soc != "m8" ]]; then
    if [[ $wipe = 1 ]]; then
-      echo -n "Wiping data partition "
+      echo -n "Wiping  data partition "
       run_update bulkcmd "amlmmc erase data"
       run_update bulkcmd "nand erase.part data"
       echo -e $GREEN"[OK]"$RESET
 
-      echo -n "Wiping cache partition "
+      echo -n "Wiping  cache partition "
       run_update bulkcmd "amlmmc erase cache"
       run_update bulkcmd "nand erase.part cache"
       echo -e $GREEN"[OK]"$RESET
@@ -586,13 +624,30 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "${partitions_name[$i]}" ]] || [[ "
    if [[ ${partitions_name[$i]} == "bootloader" ]] || [[ ${partitions_name[$i]} == "_aml_dtb" && "$parts" != "dtb" ]]; then
       continue
    fi
-   check_file $tmp_dir/${partitions_file[$i]}
-   if [[ $"$parts" == "dtb" ]]; then
-      echo -n "Writing dtb image "
+   if [[ ${partitions_name[$i]} == "_aml_dtb" ]]; then
+     newvar=dtb_file
+     newvar_type=dtb_file_type
    else
-      echo -n "Writing ${partitions_name[$i]} image "
+     newvar=${partitions_name[$i]}_file
+     newvar_type=${partitions_name[$i]}_file_type
    fi
-   run_update_assert partition ${partitions_name[$i]} $tmp_dir/${partitions_file[$i]} ${partitions_type[$i]}
+   if [[ "${!newvar}" == "" ]]; then
+     partition_file=$tmp_dir/${partitions_file[$i]}
+   else
+     partition_file=${!newvar}
+   fi
+   if [[ "${!newvar_type}" == "" ]]; then
+     partition_type=${partitions_type[$i]}
+   else
+     partition_type=${!newvar_type}
+   fi
+   check_file $partition_file
+   if [[ $"$parts" == "dtb" ]]; then
+      echo -n "Writing dtb partition "
+   else
+      echo -n "Writing ${partitions_name[$i]} partition "
+   fi
+   run_update_assert partition ${partitions_name[$i]} $partition_file $partition_type
    echo -e $GREEN"[OK]"$RESET
 fi
 done
@@ -633,3 +688,5 @@ if [[ $reset =~ [yY] ]]; then
    run_update bulkcmd "burn_complete 1"
    echo -e $GREEN"[OK]"$RESET
 fi
+
+

@@ -6,14 +6,15 @@ Please read the file tools/_install_/README before to proceed here.
 
 After than you can call flash-tool.sh from anywhere, it will give you quick help :
 
-Usage      : flash-tool.sh --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl>] [efuse-file=/path/to/file/location] [--password=/path/to/password.bin]
-Version    : 4.0
+Usage      : flash-tool.sh --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]
+Version    : 4.1
 Parameters : --img        => Specify location path to aml_upgrade_package.img
              --parts      => Specify which partition to burn
              --wipe       => Destroy all partitions
              --reset      => Force reset mode at the end of the burning
              --soc        => Force soc type (gxl=S905/S912,axg=A113,m8=S805/A111)
              --efuse-file => Force efuse OTP burn, use this option carefully
+             --*-file     => Force overload of partition files
              --password   => Unlock usb mode using password file provided
              --destroy    => Erase the bootloader and reset the board
 
@@ -59,6 +60,17 @@ $ flash-tool.sh --img=/path/to/aml_upgrade_package.img \
                 --wipe \
                 --soc=gxl \
                 --efuse-file=/path/to/output/pattern.efuse.uboot
+
+If you want to replace a specific partition from the image, you can overload it by doing this :
+
+$ flash-tool.sh --img=/path/to/aml_upgrade_package.img \
+                --parts=all \
+                --wipe \
+                --soc=gxl \
+                --system-file=/path/to/my/system.img
+
+It will flash all elements that are part of the aml_upgrade_package.img except the system.img that will be 
+the one you specified. The same mechanism is working for all partitions names [boot-file,bootloader-file,dtb-file,....]
 
 Enjoy!
 

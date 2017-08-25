@@ -23,7 +23,7 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 show_help()
 {
     echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
-    echo "Version    : 4.1"
+    echo "Version    : 4.2"
     echo "Parameters : --img        => Specify location path to aml_upgrade_package.img"
     echo "             --parts      => Specify which partition to burn"
     echo "             --wipe       => Destroy all partitions"
@@ -137,6 +137,7 @@ for opt do
         ;;
     --img)
         target_img="$optval"
+        check_file $target_img
         ;;
     --parts)
         parts="$optval"
@@ -149,12 +150,14 @@ for opt do
         ;;
     --efuse-file)
         efuse_file="$optval"
+        check_file $efuse_file
         ;;
     --soc)
         soc="$optval"
         ;;
     --password)
         password="$optval"
+        check_file $password
         ;;
     --destroy)
         destroy=1
@@ -169,6 +172,7 @@ for opt do
            declare "${newvar}"="`echo $optval|awk -F',' '{print $1}'`"
            declare "${newvar_type}"="`echo $optval|awk -F',' '{print $2}'`"
            print_debug "$newvar=${!newvar} $newvar_type=${!newvar_type}"
+           check_file ${!newvar}
         fi
         ;;
     esac
@@ -351,6 +355,13 @@ if [[ "$soc" == "axg" ]]; then
    value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
    print_debug "0xff800228      = $value"
    value=$(($value & 0x10))
+   print_debug "Secure boot bit = $value"
+fi
+if [[ "$soc" == "m8" ]]; then
+   run_update_return rreg 4 0xd9018048
+   value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
+   print_debug "0xd9018048      = $value"
+   value=$(($value & 0x80))
    print_debug "Secure boot bit = $value"
 fi
 if [[ $value != 0 ]]; then
@@ -578,8 +589,8 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
 
       echo -n "Writing bootloader "
       run_update_assert partition bootloader "$bootloader_file"
-      run_update_assert bulkcmd "env default -a"
-      run_update_assert bulkcmd "saveenv"
+      #run_update_assert bulkcmd "env default -a"
+      #run_update_assert bulkcmd "saveenv"
       echo -e $GREEN"[OK]"$RESET
    else
       echo -n "Creating partitions "
@@ -598,12 +609,19 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
       run_update_assert mwrite $dtb_file mem dtb normal
       echo -e $GREEN"[OK]"$RESET
    fi
+   run_update bulkcmd "setenv upgrade_step 1"
+   run_update bulkcmd "save"
 fi
 
 # Data and cache partitions wiping
 # --------------------------------
+if [[ $wipe == 1 ]]; then
+   run_update bulkcmd "setenv firstboot 1"
+   run_update bulkcmd "save"
+   run_update bulkcmd "rpmb_reset"
+fi
 if [[ $soc != "m8" ]]; then
-   if [[ $wipe = 1 ]]; then
+   if [[ $wipe == 1 ]]; then
       echo -n "Wiping  data partition "
       run_update bulkcmd "amlmmc erase data"
       run_update bulkcmd "nand erase.part data"
@@ -654,9 +672,9 @@ done
 
 # Terminate burning tool
 # ----------------------
-echo -n "Terminate update of the board "
-run_update_assert bulkcmd save_setting
-echo -e $GREEN"[OK]"$RESET
+#echo -n "Terminate update of the board "
+#run_update_assert bulkcmd save_setting
+#echo -e $GREEN"[OK]"$RESET
 
 # eFuse update
 # ------------

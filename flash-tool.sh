@@ -23,7 +23,7 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 show_help()
 {
     echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
-    echo "Version    : 4.2"
+    echo "Version    : 4.3"
     echo "Parameters : --img        => Specify location path to aml_upgrade_package.img"
     echo "             --parts      => Specify which partition to burn"
     echo "             --wipe       => Destroy all partitions"
@@ -443,10 +443,12 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
    if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
       ddr=$TOOL_PATH/tools/usbbl2runpara_ddrinit.bin
       fip=$TOOL_PATH/tools/usbbl2runpara_runfipimg.bin
-   fi
+      check_file $ddr
+      check_file $fip
+      fi
    if [[ $soc == "m8" ]]; then
-      ddr=$tmp_dir/$ddr_filename
       fip=$TOOL_PATH/tools/decompressPara_4M.dump
+      check_file $fip
    fi
 
    if [[ -z $bootloader_file ]]; then
@@ -481,30 +483,27 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
 
    check_file "$bootloader_file"
    check_file "$dtb_file"
-   check_file "$ddr"
-   check_file "$fip"
 
-   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
-      if [[ $secured == 0 ]]; then
-         bl2=$tmp_dir/$ddr_filename
+   if [[ $secured == 0 ]]; then
+      bl2=$tmp_dir/$ddr_filename
+      if [[ -z $uboot_comp_filename ]]; then
          tpl=$tmp_dir/$uboot_filename
       else
-         bl2=$tmp_dir/$ddr_enc_filename
-         tpl=$tmp_dir/$uboot_enc_filename
-         if [[ -z "$ddr_enc_filename" ]] || [[ -z "$uboot_enc_filename" ]]; then
-            echo "Your board is secured but the image you want to flash does not contain any signed bootloader !"
-            echo "Please check, flashing can't continue..."
-            cleanup
-            exit 1
-         fi
+         tpl=$tmp_dir/$uboot_comp_filename
       fi
-      check_file "$bl2"
-      check_file "$tpl"
+   else
+      bl2=$tmp_dir/$ddr_enc_filename
+      tpl=$tmp_dir/$uboot_enc_filename
+      if [[ -z "$ddr_enc_filename" ]] || [[ -z "$uboot_enc_filename" ]]; then
+         echo "Your board is secured but the image you want to flash does not contain any signed bootloader !"
+         echo "Please check, flashing can't continue..."
+         cleanup
+         exit 1
+      fi
    fi
-   if [[ $soc == "m8" ]]; then
-      tpl=$tmp_dir/$uboot_comp_filename
-      check_file "$tpl"
-   fi
+   check_file "$bl2"
+   check_file "$tpl"
+
    echo -n "Initializing ddr "
    if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
       run_update_assert cwr   "$bl2" $ddr_load
@@ -522,9 +521,9 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
           echo -n "."
           sleep 1
       done
-      run_update_assert cwr "$ddr"   $ddr_load
-      run_update_assert run          $ddr_run
-      for i in {1..4}
+      run_update_assert cwr "$bl2" $ddr_load
+      run_update_assert run        $ddr_run
+      for i in {1..8}
       do
           echo -n "."
           sleep 1
@@ -541,13 +540,28 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
    fi
    if [[ $soc == "m8" ]]; then
       run_update_assert write "$fip" $bin_params
-      run_update_assert write "$tpl" 0x00400000
-      run_update_assert run          $uboot_decomp
-      value=`echo "obase=16;$(($bin_params + 0x18))"|bc`
-      run_update_return rreg 4 0x$value
-      jump_addr=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
-      print_debug "Jumping to $jump_addr"
-      run_update_assert run          $jump_addr
+      if [[ $secured == 0 ]]; then
+         run_update_assert write "$tpl" 0x00400000
+         run_update_assert run          $uboot_decomp
+         for i in {1..13}
+         do
+            echo -n "."
+            sleep 1
+         done
+         value=`echo "obase=16;$(($bin_params + 0x18))"|bc`
+         run_update_return rreg 4 0x$value
+         jump_addr=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
+         print_debug "Jumping to $jump_addr"
+         run_update_assert run  $jump_addr
+      else
+         run_update_assert write "$tpl" $uboot_enc_down
+         run_update_assert run          $uboot_enc_run
+         for i in {1..8}
+         do
+            echo -n "."
+            sleep 1
+         done
+      fi
    fi
    for i in {1..8}
    do
@@ -682,7 +696,11 @@ if [[ $efuse_file != "" ]]; then
    check_file "$efuse_file"
    echo -n "Programming efuses "
    run_update_assert write $efuse_file 0x03000000
-   run_update_assert bulkcmd "efuse amlogic_set 0x03000000"
+   if [[ $soc == "m8" ]]; then
+      run_update_assert bulkcmd "efuse secure_boot_set 0x03000000"
+   else
+      run_update_assert bulkcmd "efuse amlogic_set 0x03000000"
+   fi
    echo -e $GREEN"[OK]"$RESET
    run_update bulkcmd "low_power"
 fi

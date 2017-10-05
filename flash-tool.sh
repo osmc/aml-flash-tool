@@ -5,6 +5,7 @@ parts=
 wipe=
 reset=
 soc=
+uboot_file=
 efuse_file=
 password=
 destroy=
@@ -23,7 +24,7 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 show_help()
 {
     echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
-    echo "Version    : 4.3"
+    echo "Version    : 4.4"
     echo "Parameters : --img        => Specify location path to aml_upgrade_package.img"
     echo "             --parts      => Specify which partition to burn"
     echo "             --wipe       => Destroy all partitions"
@@ -151,6 +152,10 @@ for opt do
     --efuse-file)
         efuse_file="$optval"
         check_file $efuse_file
+        ;;
+    --uboot-file)
+        uboot_file="$optval"
+        check_file $uboot_file
         ;;
     --soc)
         soc="$optval"
@@ -479,28 +484,43 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
    print_debug "--------------------"
    print_debug "bootloader_file = $bootloader_file"
    print_debug "dtb_file        = $dtb_file"
-   print_debug ""
 
    check_file "$bootloader_file"
    check_file "$dtb_file"
 
-   if [[ $secured == 0 ]]; then
-      bl2=$tmp_dir/$ddr_filename
-      if [[ -z $uboot_comp_filename ]]; then
-         tpl=$tmp_dir/$uboot_filename
+   if [[ -z $uboot_file ]]; then
+      if [[ $secured == 0 ]]; then
+         bl2=$tmp_dir/$ddr_filename
+         if [[ -z $uboot_comp_filename ]]; then
+            tpl=$tmp_dir/$uboot_filename
+         else
+            tpl=$tmp_dir/$uboot_comp_filename
+         fi
       else
-         tpl=$tmp_dir/$uboot_comp_filename
+         bl2=$tmp_dir/$ddr_enc_filename
+         tpl=$tmp_dir/$uboot_enc_filename
+         if [[ -z "$ddr_enc_filename" ]] || [[ -z "$uboot_enc_filename" ]]; then
+            echo "Your board is secured but the image you want to flash does not contain any signed bootloader !"
+            echo "Please check, flashing can't continue..."
+            cleanup
+            exit 1
+         fi
       fi
    else
-      bl2=$tmp_dir/$ddr_enc_filename
-      tpl=$tmp_dir/$uboot_enc_filename
-      if [[ -z "$ddr_enc_filename" ]] || [[ -z "$uboot_enc_filename" ]]; then
-         echo "Your board is secured but the image you want to flash does not contain any signed bootloader !"
-         echo "Please check, flashing can't continue..."
+      if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+         print_debug "uboot_file      = $uboot_file"
+         bl2=$tmp_dir/uboot_file_bl2.bin
+         tpl=$tmp_dir/uboot_file_tpl.bin
+         dd &>/dev/null if=$uboot_file of=$bl2 bs=49152 count=1
+         dd &>/dev/null if=$uboot_file of=$tpl bs=49152 skip=1
+      else
+         echo "You can't use --uboot-file parameter with --soc=m8 ! This is not supported !"
          cleanup
          exit 1
       fi
    fi
+
+   print_debug ""
    check_file "$bl2"
    check_file "$tpl"
 

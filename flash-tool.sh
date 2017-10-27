@@ -23,13 +23,13 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 # ------
 show_help()
 {
-    echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
-    echo "Version    : 4.4"
+    echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl|txlx>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
+    echo "Version    : 4.5"
     echo "Parameters : --img        => Specify location path to aml_upgrade_package.img"
     echo "             --parts      => Specify which partition to burn"
     echo "             --wipe       => Destroy all partitions"
     echo "             --reset      => Force reset mode at the end of the burning"
-    echo "             --soc        => Force soc type (gxl=S905/S912,axg=A113,m8=S805/A111)"
+    echo "             --soc        => Force soc type (gxl=S905/S912,axg=A113,txlx=T962,m8=S805/A111)"
     echo "             --efuse-file => Force efuse OTP burn, use this option carefully "
     echo "             --*-file     => Force overload of partition files"
     echo "             --password   => Unlock usb mode using password file provided"
@@ -199,8 +199,8 @@ fi
 if [[ -z $soc ]]; then
    soc=gxl
 fi
-if [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "m8" ]]; then
-   echo "Soc type is invalid, should be either gxl,axg,m8"
+if [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "txlx" ]] && [[ "$soc" != "m8" ]]; then
+   echo "Soc type is invalid, should be either gxl,axg,txlx,m8"
    exit 1
 fi
 run_update_return identify 7
@@ -263,6 +263,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
       if [[ $destroy == 1 ]]; then
         run_update bulkcmd "store erase boot"
         run_update bulkcmd "amlmmc erase 1"
+        run_update bulkcmd "nand erase 0 4096"
       fi
       run_update bulkcmd "reset"
       if [[ $destroy == 1 ]]; then
@@ -348,6 +349,7 @@ fi
 # ------------------------
 secured=0
 value=0
+# Board secure info is extracted from SEC_AO_SEC_SD_CFG10 register
 if [[ "$soc" == "gxl" ]]; then
    run_update_return rreg 4 0xc8100228
    value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
@@ -355,7 +357,7 @@ if [[ "$soc" == "gxl" ]]; then
    value=$(($value & 0x10))
    print_debug "Secure boot bit = $value"
 fi
-if [[ "$soc" == "axg" ]]; then
+if [[ "$soc" == "axg" ]] || [[ $soc == "txlx" ]]; then
    run_update_return rreg 4 0xff800228
    value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
    print_debug "0xff800228      = $value"
@@ -444,8 +446,8 @@ print_debug ""
 
 # Bootloader update
 # -----------------
-if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
-   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "none" ]]; then
+   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
       ddr=$TOOL_PATH/tools/usbbl2runpara_ddrinit.bin
       fip=$TOOL_PATH/tools/usbbl2runpara_runfipimg.bin
       check_file $ddr
@@ -466,7 +468,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
       done
    fi
    if [[ -z $dtb_file ]]; then
-      if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+      if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
          for i in $(seq 0 `expr $nb_partitions - 1`)
          do
          if [[ "${partitions_name[$i]}" == "_aml_dtb" ]]; then
@@ -507,7 +509,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
          fi
       fi
    else
-      if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+      if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
          print_debug "uboot_file      = $uboot_file"
          bl2=$tmp_dir/uboot_file_bl2.bin
          tpl=$tmp_dir/uboot_file_tpl.bin
@@ -525,7 +527,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
    check_file "$tpl"
 
    echo -n "Initializing ddr "
-   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
       run_update_assert cwr   "$bl2" $ddr_load
       run_update_assert write "$ddr" $bl2_params
       run_update_assert run          $ddr_run
@@ -552,7 +554,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
    echo -e $GREEN"[OK]"$RESET
 
    echo -n "Running u-boot "
-   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
       run_update_assert write "$bl2" $ddr_load
       run_update_assert write "$fip" $bl2_params # tell bl2 to jump to tpl, aka u-boot
       run_update_assert write "$tpl" $uboot_load
@@ -592,11 +594,10 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
 
    run_update bulkcmd "low_power"
 
-   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]]; then
+   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
       if [[ $secured == 1 ]]; then
          check_file "$tmp_dir/$dtb_meson1_filename"
       fi
-      echo -n "Create partitions "
       if [[ $secured == 1 ]]; then
          run_update_assert mwrite "$tmp_dir/$dtb_meson1_filename" mem dtb normal
       else
@@ -610,42 +611,84 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]]; then
             run_update_assert mwrite "$dtb_file" mem dtb normal
          fi
       fi
-      if [[ $wipe == 1 ]]; then
-         run_update_assert bulkcmd "disk_initial 1"
-      else
-         run_update_assert bulkcmd "disk_initial 0"
+      if [[ "$parts" != "none" ]]; then
+         echo -n "Create partitions "
+         if [[ $wipe == 1 ]]; then
+            run_update_assert bulkcmd "disk_initial 1"
+          else
+            run_update_assert bulkcmd "disk_initial 0"
+          fi
+          echo -e $GREEN"[OK]"$RESET
+
+          echo -n "Writing device tree "
+          run_update_assert partition _aml_dtb "$dtb_file"
+          echo -e $GREEN"[OK]"$RESET
+
+          echo -n "Writing bootloader "
+          run_update_assert partition bootloader "$bootloader_file"
+          #run_update_assert bulkcmd "env default -a"
+          #run_update_assert bulkcmd "saveenv"
+          echo -e $GREEN"[OK]"$RESET
       fi
-      echo -e $GREEN"[OK]"$RESET
-
-      echo -n "Writing device tree "
-      run_update_assert partition _aml_dtb "$dtb_file"
-      echo -e $GREEN"[OK]"$RESET
-
-      echo -n "Writing bootloader "
-      run_update_assert partition bootloader "$bootloader_file"
-      #run_update_assert bulkcmd "env default -a"
-      #run_update_assert bulkcmd "saveenv"
-      echo -e $GREEN"[OK]"$RESET
    else
-      echo -n "Creating partitions "
-      if [[ $wipe == 1 ]]; then
-         run_update_assert bulkcmd "disk_initial 3"
-      else
-         run_update_assert bulkcmd "disk_initial 0"
+      if [[ "$parts" != "none" ]]; then
+         echo -n "Creating partitions "
+         if [[ $wipe == 1 ]]; then
+            run_update bulkcmd "disk_initial 3"
+            run_update_assert bulkcmd "disk_initial 2"
+         else
+            run_update_assert bulkcmd "disk_initial 0"
+         fi
+         echo -e $GREEN"[OK]"$RESET
+
+         echo -n "Writing bootloader "
+         run_update_assert partition bootloader "$bootloader_file"
+         echo -e $GREEN"[OK]"$RESET
+
+         echo -n "Writing device tree "
+         run_update_assert mwrite $dtb_file mem dtb normal
+         echo -e $GREEN"[OK]"$RESET
       fi
-      echo -e $GREEN"[OK]"$RESET
-
-      echo -n "Writing bootloader "
-      run_update_assert partition bootloader "$bootloader_file"
-      echo -e $GREEN"[OK]"$RESET
-
-      echo -n "Writing device tree "
-      run_update_assert mwrite $dtb_file mem dtb normal
-      echo -e $GREEN"[OK]"$RESET
    fi
-   run_update bulkcmd "setenv upgrade_step 1"
-   run_update bulkcmd "save"
+   if [[ "$parts" != "none" ]]; then
+      run_update bulkcmd "setenv upgrade_step 1"
+      run_update bulkcmd "save"
+   fi
+   if [[ "$soc" == "m8" ]]; then
+      run_update bulkcmd "save_setting"
+   fi
 fi
+
+# Check chip version
+# ------------------
+# Chip version is extracted from SEC_AO_SEC_SD_CFG8 register
+# if [[ "$soc" == "gxl" ]]; then
+#    sleep 5
+#    run_update_return rreg 4 0xda100220
+#    value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
+#   print_debug "0xda100220 = $value"
+#   chip_misc=$(($value & 0xff))
+#   value=$(($value >> 8))
+#   chip_minor=$(($value & 0xff))
+#   value=$(($value >> 8))
+#   chip_pack=$(($value & 0xf0))
+#   value=$(($value >> 8))
+#   chip_major=$(($value & 0xff))
+#   printf "Chipset version $GREEN[%X:%X - %X:%X]$RESET\n" $chip_major $chip_minor $chip_pack $chip_misc
+#fi
+#if [[ "$soc" == "axg" ]] || [[ $soc == "txlx" ]]; then
+#   run_update_return rreg 4 0xff800220
+#   value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
+#   print_debug "0xff800220 = $value"
+#   chip_misc=$(($value & 0xff))
+#   value=$(($value >> 8))
+#   chip_minor=$(($value & 0xff))
+#   value=$(($value >> 8))
+#   chip_pack=$(($value & 0xf0))
+#   value=$(($value >> 8))
+#   chip_major=$(($value & 0xff))
+#   printf "Chipset version $GREEN[%X:%X - %X:%X]$RESET\n" $chip_major $chip_minor $chip_pack $chip_misc
+#fi
 
 # Data and cache partitions wiping
 # --------------------------------
@@ -731,18 +774,32 @@ fi
 
 # Resetting board ? 
 # -----------------
-if [[ -z "$reset" ]]; then
-   while true; do
-      read -p "Do you want to reset the board? y/n [n]? " reset
-      if [[ $reset =~ [yYnN] ]]; then
-         break
-      fi
-   done
+if [[ "$parts" != "none" ]]; then
+   if [[ -z "$reset" ]]; then
+      while true; do
+         read -p "Do you want to reset the board? y/n [n]? " reset
+         if [[ $reset =~ [yYnN] ]]; then
+            break
+         fi
+      done
+   fi
+   if [[ $reset =~ [yY] ]]; then
+      echo -n "Resetting board "
+      run_update bulkcmd "burn_complete 1"
+      echo -e $GREEN"[OK]"$RESET
+   fi
+else
+   echo "Uboot is now loaded into your board !"
+   echo "You can use $TOOL_PATH/tools/update bulkcmd \"any uboot command\" to control uboot"
+   echo "Examples :"
+   echo "   - Select eMMC device :"
+   echo "   update bulkcmd \"mmc dev 1\""
+   echo "   - Read first block of eMMC at address 0x03000000"
+   echo "   update bulkcmd \"mmc read 0x03000000 0 1\""
+   echo "   - Save 512 bytes from address to 0x03000000 to host pc in file emmc.bin"
+   echo "   update mread mem 0x03000000 normal 512 emmc.bin"
+   echo "   - Write a file from host PC to address 0x03000000"
+   echo "   update mwrite file.bin mem 0x03000000 normal"
+   echo "   - Write to eMMC first block from address 0x03000000"
+   echo "   update bulkcmd \"mmc write 0x03000000 0 1\""
 fi
-if [[ $reset =~ [yY] ]]; then
-   echo -n "Resetting board "
-   run_update bulkcmd "burn_complete 1"
-   echo -e $GREEN"[OK]"$RESET
-fi
-
-

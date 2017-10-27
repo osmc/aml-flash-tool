@@ -6,13 +6,13 @@ Please read the file tools/_install_/README before to proceed here.
 
 After than you can call flash-tool.sh from anywhere, it will give you quick help :
 
-Usage      : flash-tool.sh --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]
-Version    : 4.4
+Usage      : flash-tool.sh --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl|txlx>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]
+Version    : 4.5
 Parameters : --img        => Specify location path to aml_upgrade_package.img
              --parts      => Specify which partition to burn
              --wipe       => Destroy all partitions
              --reset      => Force reset mode at the end of the burning
-             --soc        => Force soc type (gxl=S905/S912,axg=A113,m8=S805/A111)
+             --soc        => Force soc type (gxl=S905/S912,axg=A113,txlx=T962,m8=S805/A111)
              --efuse-file => Force efuse OTP burn, use this option carefully
              --*-file     => Force overload of partition files
              --password   => Unlock usb mode using password file provided

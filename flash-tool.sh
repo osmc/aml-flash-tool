@@ -24,7 +24,7 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 show_help()
 {
     echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl|txlx>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
-    echo "Version    : 4.5"
+    echo "Version    : 4.6"
     echo "Parameters : --img        => Specify location path to aml_upgrade_package.img"
     echo "             --parts      => Specify which partition to burn"
     echo "             --wipe       => Destroy all partitions"
@@ -536,6 +536,17 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
           echo -n "."
           sleep 1
       done
+      run_update_return identify 7
+      if ! `echo $update_return | grep -iq firmware`; then
+         echo -e $RED"[KO]"$RESET
+         cleanup
+         exit 1
+      fi
+      usb_protocol=`echo $update_return|awk -F- '{print $4}'`
+      # If new usb protocol, init DDR
+      if [[ $usb_protocol == "8" ]]; then
+         run_update_assert run $bl2_params
+      fi
    fi
    if [[ $soc == "m8" ]]; then
       for i in {1..6}
@@ -558,7 +569,11 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
       run_update_assert write "$bl2" $ddr_load
       run_update_assert write "$fip" $bl2_params # tell bl2 to jump to tpl, aka u-boot
       run_update_assert write "$tpl" $uboot_load
-      run_update_assert run          $uboot_run
+      if [[ $usb_protocol == "8" ]]; then
+         run_update_assert run $bl2_params
+      else
+         run_update_assert run $uboot_run
+      fi
    fi
    if [[ $soc == "m8" ]]; then
       run_update_assert write "$fip" $bin_params

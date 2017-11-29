@@ -24,7 +24,7 @@ TOOL_PATH="$(cd $(dirname $0); pwd)"
 show_help()
 {
     echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl|txlx>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
-    echo "Version    : 4.6"
+    echo "Version    : 4.7"
     echo "Parameters : --img        => Specify location path to aml_upgrade_package.img"
     echo "             --parts      => Specify which partition to burn"
     echo "             --wipe       => Destroy all partitions"
@@ -55,7 +55,7 @@ cleanup()
 {
     echo -e $RESET
     print_debug "Cleanup"
-    [[ -d $tmp_dir ]] && rm -rf "$tmp_dir"
+#    [[ -d $tmp_dir ]] && rm -rf "$tmp_dir"
 }
 cleanup_trap()
 {
@@ -77,20 +77,32 @@ print_debug()
 run_update_return()
 {
     local cmd
+    local need_spaces
 
-    cmd+="$TOOL_PATH/tools/update 2>/dev/null"
+    cmd="$TOOL_PATH/tools/update 2>/dev/null"
+    need_spaces=0
+    if [[ "$1" == "bulkcmd" ]] || [[ "$1" == "tplcmd" ]]; then
+       need_spaces=1
+    fi
+    cmd+=" $1"
+    shift 1
+
     for arg in "$@"; do
         if [[ "$arg" =~ ' ' ]]; then
-           cmd+=" \"$arg\""
+           cmd+=" \"     $arg\""
         else
-           cmd+=" $arg"
+           if [[ $need_spaces == 1 ]]; then
+              cmd+=" \"     $arg\""
+           else
+              cmd+=" $arg"
+           fi
         fi
     done
 
     update_return=""
     print_debug "\nCommand ->$CYAN $cmd $RESET"
     if [[ "$simu" != "1" ]]; then
-       update_return=`eval $cmd`
+       update_return=`eval "$cmd"`
     fi
     print_debug "- Results ---------------------------------------------------"
     print_debug "$RED $update_return $RESET"
@@ -253,8 +265,8 @@ tmp_dir=$(mktemp -d /tmp/aml-flash-tool-XXXX)
 # Should we destroy the boot ?
 # ----------------------------
 if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "" ]] || [[ "$parts" == "none" ]]; then
-   run_update tplcmd "echo 12345"
-   run_update bulkcmd "low_power"
+   run_update bulkcmd "echo 12345"
+   #run_update bulkcmd "low_power"
    if [[ $? = 0 ]]; then
       echo -n "Rebooting the board "
       run_update bulkcmd "bootloader_is_old"
@@ -402,6 +414,8 @@ dtb_meson_filename=`awk '/sub_type=\"meson\"/{gsub("file=","",$1); gsub(/"/,"",$
 print_debug "dtb_meson_filename  = $dtb_meson_filename"
 dtb_meson1_filename=`awk '/sub_type=\"meson1\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "dtb_meson1_filename = $dtb_meson1_filename"
+dtb_meson1_enc_filename=`awk '/sub_type=\"meson1_ENC\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+print_debug "dtb_meson1_enc_filename = $dtb_meson1_enc_filename"
 ddr_enc_filename=`awk '/sub_type=\"DDR_ENC\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "ddr_enc_filename    = $ddr_enc_filename"
 uboot_enc_filename=`awk '/sub_type=\"UBOOT_ENC\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
@@ -509,6 +523,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
          fi
       fi
    else
+      print_debug "uboot_file      = $uboot_file"
       if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
          print_debug "uboot_file      = $uboot_file"
          bl2=$tmp_dir/uboot_file_bl2.bin
@@ -516,9 +531,8 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
          dd &>/dev/null if=$uboot_file of=$bl2 bs=49152 count=1
          dd &>/dev/null if=$uboot_file of=$tpl bs=49152 skip=1
       else
-         echo "You can't use --uboot-file parameter with --soc=m8 ! This is not supported !"
-         cleanup
-         exit 1
+         bl2=$tmp_dir/$ddr_filename
+         tpl=$uboot_file
       fi
    fi
 
@@ -607,24 +621,15 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
    done
    echo -e $GREEN"[OK]"$RESET
 
-   run_update bulkcmd "low_power"
+   #run_update bulkcmd "low_power"
 
    if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
       if [[ $secured == 1 ]]; then
-         check_file "$tmp_dir/$dtb_meson1_filename"
-      fi
-      if [[ $secured == 1 ]]; then
-         run_update_assert mwrite "$tmp_dir/$dtb_meson1_filename" mem dtb normal
+         check_file "$tmp_dir/$dtb_meson1_enc_filename"
+         run_update_assert mwrite "$tmp_dir/$dtb_meson1_enc_filename" mem dtb normal
       else
-         # We could be in the case that $dtb is signed but the board is not yet secure
-         # So need to load non secure dtb here in all cases
-         headstring=`head -c 4 $dtb_file`
-         if [[ $headstring == "@AML" ]]; then
-            check_file "$tmp_dir/$dtb_meson1_filename"
-            run_update_assert mwrite "$tmp_dir/$dtb_meson1_filename" mem dtb normal
-         else
-            run_update_assert mwrite "$dtb_file" mem dtb normal
-         fi
+         check_file "$tmp_dir/$dtb_meson1_filename"
+         run_update_assert mwrite "$tmp_dir/$dtb_meson1_filename" mem dtb normal
       fi
       if [[ "$parts" != "none" ]]; then
          echo -n "Create partitions "
@@ -780,7 +785,7 @@ if [[ $efuse_file != "" ]]; then
       run_update_assert bulkcmd "efuse amlogic_set 0x03000000"
    fi
    echo -e $GREEN"[OK]"$RESET
-   run_update bulkcmd "low_power"
+   #run_update bulkcmd "low_power"
 fi
 
 # Cleanup

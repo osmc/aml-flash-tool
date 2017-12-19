@@ -7,7 +7,7 @@ Please read the file tools/_install_/README before to proceed here.
 After than you can call flash-tool.sh from anywhere, it will give you quick help :
 
 Usage      : flash-tool.sh --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl|txlx>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]
-Version    : 4.7
+Version    : 4.8
 Parameters : --img        => Specify location path to aml_upgrade_package.img
              --parts      => Specify which partition to burn
              --wipe       => Destroy all partitions

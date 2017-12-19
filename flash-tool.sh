@@ -18,13 +18,15 @@ YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 RESET='\033[m'
 TOOL_PATH="$(cd $(dirname $0); pwd)"
+SYSTEM='linux-x86'
+EXE=
 
 # Helper
 # ------
 show_help()
 {
     echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl|txlx>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
-    echo "Version    : 4.7"
+    echo "Version    : 4.8"
     echo "Parameters : --img        => Specify location path to aml_upgrade_package.img"
     echo "             --parts      => Specify which partition to burn"
     echo "             --wipe       => Destroy all partitions"
@@ -55,7 +57,7 @@ cleanup()
 {
     echo -e $RESET
     print_debug "Cleanup"
-#    [[ -d $tmp_dir ]] && rm -rf "$tmp_dir"
+    [[ -d $tmp_dir ]] && rm -rf "$tmp_dir"
 }
 cleanup_trap()
 {
@@ -79,7 +81,7 @@ run_update_return()
     local cmd
     local need_spaces
 
-    cmd="$TOOL_PATH/tools/update 2>/dev/null"
+    cmd="$TOOL_PATH/tools/$SYSTEM/update$EXE 2>/dev/null"
     need_spaces=0
     if [[ "$1" == "bulkcmd" ]] || [[ "$1" == "tplcmd" ]]; then
        need_spaces=1
@@ -194,6 +196,23 @@ for opt do
         ;;
     esac
 done
+
+# Testing host machine
+# --------------------
+host_machine=`uname -m|grep -i "x86"`
+if [ ! -z $host_machine ]; then
+   SYSTEM='linux-x86'
+   EXE=''
+else
+   SYSTEM='linux-arm'
+   EXE=''
+fi
+# Could be possible to run on windows, but need to force these variables
+# SYSTEM='windows'
+# EXE='.exe'
+print_debug "host_machine = $host_machine"
+print_debug "SYSTEM       = $SYSTEM"
+print_debug "EXE          = $EXE"
 
 # Check parameters
 # ----------------
@@ -364,21 +383,21 @@ value=0
 # Board secure info is extracted from SEC_AO_SEC_SD_CFG10 register
 if [[ "$soc" == "gxl" ]]; then
    run_update_return rreg 4 0xc8100228
-   value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
+   value=0x`echo $update_return|grep -i c8100228|awk -F: '{gsub(/ /,"",$2);print $2}'`
    print_debug "0xc8100228      = $value"
    value=$(($value & 0x10))
    print_debug "Secure boot bit = $value"
 fi
 if [[ "$soc" == "axg" ]] || [[ $soc == "txlx" ]]; then
    run_update_return rreg 4 0xff800228
-   value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
+   value=0x`echo $update_return|grep -i ff800228|awk -F: '{gsub(/ /,"",$2);print $2}'`
    print_debug "0xff800228      = $value"
    value=$(($value & 0x10))
    print_debug "Secure boot bit = $value"
 fi
 if [[ "$soc" == "m8" ]]; then
    run_update_return rreg 4 0xd9018048
-   value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
+   value=0x`echo $update_return|grep -i d9018048|awk -F: '{gsub(/ /,"",$2);print $2}'`
    print_debug "0xd9018048      = $value"
    value=$(($value & 0x80))
    print_debug "Secure boot bit = $value"
@@ -391,7 +410,7 @@ fi
 # Unpack image if image is given
 # ------------------------------
 echo -n "Unpacking image "
-return_value=`$TOOL_PATH/tools/aml_image_v2_packer -d $target_img $tmp_dir`
+return_value=`$TOOL_PATH/tools/$SYSTEM/aml_image_v2_packer$EXE -d $target_img $tmp_dir`
 print_debug "\n$return_value"
 if [[ -z `echo $return_value|grep "Image unpack OK!"` ]]; then
    echo -e $RED"[KO]"$RESET
@@ -462,13 +481,13 @@ print_debug ""
 # -----------------
 if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "none" ]]; then
    if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
-      ddr=$TOOL_PATH/tools/usbbl2runpara_ddrinit.bin
-      fip=$TOOL_PATH/tools/usbbl2runpara_runfipimg.bin
+      ddr=$TOOL_PATH/tools/datas/usbbl2runpara_ddrinit.bin
+      fip=$TOOL_PATH/tools/datas/usbbl2runpara_runfipimg.bin
       check_file $ddr
       check_file $fip
       fi
    if [[ $soc == "m8" ]]; then
-      fip=$TOOL_PATH/tools/decompressPara_4M.dump
+      fip=$TOOL_PATH/tools/datas/decompressPara_4M.dump
       check_file $fip
    fi
 
@@ -621,6 +640,8 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
    done
    echo -e $GREEN"[OK]"$RESET
 
+   # Need this command to avoid to loose 4 bytes of commands after reset
+   run_update bulkcmd "echo 12345"
    #run_update bulkcmd "low_power"
 
    if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
@@ -822,4 +843,9 @@ else
    echo "   update mwrite file.bin mem 0x03000000 normal"
    echo "   - Write to eMMC first block from address 0x03000000"
    echo "   update bulkcmd \"mmc write 0x03000000 0 1\""
+   echo "   - Booting a kernel"
+   echo "   update bulkcmd \"disk_initial 0\""
+   echo "   update bulkcmd \"env default -a\""
+   echo "   update bulkcmd \"run storeargs\""
+   echo "   update bulkcmd \"run bootcmd\""
 fi

@@ -25,13 +25,13 @@ EXE=
 # ------
 show_help()
 {
-    echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl|txlx>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
-    echo "Version    : 4.8"
+    echo "Usage      : $0 --img=/path/to/aml_upgrade_package.img> --parts=<all|none|bootloader|dtb|logo|recovery|boot|system|..> [--wipe] [--reset=<y|n>] [--soc=<m8|axg|gxl|txlx|g12a>] [efuse-file=/path/to/file/location] [bootloader|dtb|logo|boot|...-file=/path/to/file/partition] [--password=/path/to/password.bin]"
+    echo "Version    : 4.9"
     echo "Parameters : --img        => Specify location path to aml_upgrade_package.img"
     echo "             --parts      => Specify which partition to burn"
     echo "             --wipe       => Destroy all partitions"
     echo "             --reset      => Force reset mode at the end of the burning"
-    echo "             --soc        => Force soc type (gxl=S905/S912,axg=A113,txlx=T962,m8=S805/A111)"
+    echo "             --soc        => Force soc type (gxl=S905/S912,axg=A113,txlx=T962,g12a=S905X2,m8=S805/A111)"
     echo "             --efuse-file => Force efuse OTP burn, use this option carefully "
     echo "             --*-file     => Force overload of partition files"
     echo "             --password   => Unlock usb mode using password file provided"
@@ -177,7 +177,9 @@ for opt do
     --password)
         password="$optval"
         check_file $password
-        ;;
+        password_size=`wc -c "$password" | awk '{print $1}'`
+
+	;;
     --destroy)
         destroy=1
         ;;
@@ -199,17 +201,21 @@ done
 
 # Testing host machine
 # --------------------
-host_machine=`uname -m|grep -i "x86"`
-if [ ! -z $host_machine ]; then
-   SYSTEM='linux-x86'
-   EXE=''
+host_os=`uname -a|grep Linux`
+host_machine=`uname -a|grep -i "x86"`
+if [ ! -z "$host_os" ]; then
+   if [ ! -z "$host_machine" ]; then
+      SYSTEM='linux-x86'
+      EXE=''
+   else
+     SYSTEM='linux-arm'
+     EXE=''
+   fi
 else
-   SYSTEM='linux-arm'
-   EXE=''
+   SYSTEM='windows'
+   EXE='.exe'
 fi
-# Could be possible to run on windows, but need to force these variables
-# SYSTEM='windows'
-# EXE='.exe'
+print_debug "host_os      = $host_os"
 print_debug "host_machine = $host_machine"
 print_debug "SYSTEM       = $SYSTEM"
 print_debug "EXE          = $EXE"
@@ -230,8 +236,8 @@ fi
 if [[ -z $soc ]]; then
    soc=gxl
 fi
-if [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "txlx" ]] && [[ "$soc" != "m8" ]]; then
-   echo "Soc type is invalid, should be either gxl,axg,txlx,m8"
+if [[ "$soc" != "m8" ]] && [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "txlx" ]] && [[ "$soc" != "g12a" ]]; then
+   echo "Soc type is invalid, should be either m8,gxl,axg,txlx,g12a"
    exit 1
 fi
 run_update_return identify 7
@@ -279,7 +285,12 @@ fi
 
 # Create tmp directory
 # --------------------
-tmp_dir=$(mktemp -d /tmp/aml-flash-tool-XXXX)
+if [[ "$SYSTEM" == "windows" ]]; then
+   tmp_dir="C:/tmp/aml-flash-tool"`date +%H%M%S`
+   mkdir -p $tmp_dir
+else
+   tmp_dir=$(mktemp -d /tmp/aml-flash-tool-XXXX)
+fi
 
 # Should we destroy the boot ?
 # ----------------------------
@@ -366,9 +377,9 @@ fi
 #  if [[ "$value" == "AMLAXG" ]]; then
 #     soc=axg
 #  fi
-#  if [[ "$soc" != "gxl" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "m8" ]]; then
+#  if [[ "$soc" != "gxl" ]] && [[ "$soc" != "txlx" ]] && [ "$soc" != "g12a" ]] && [[ "$soc" != "axg" ]] && [[ "$soc" != "m8" ]]; then
 #     echo -e $RED"[KO]"$RESET
-#     echo "Unable to identify chipset, Try by forcing it manually with --soc=<gxl,axg,m8>"
+#     echo "Unable to identify chipset, Try by forcing it manually with --soc=<gxl,axg,txlx,g12a,m8>"
 #     cleanup
 #     exit 1
 #  else
@@ -388,7 +399,7 @@ if [[ "$soc" == "gxl" ]]; then
    value=$(($value & 0x10))
    print_debug "Secure boot bit = $value"
 fi
-if [[ "$soc" == "axg" ]] || [[ $soc == "txlx" ]]; then
+if [[ "$soc" == "axg" ]] || [[ $soc == "txlx" ]] || [[ $soc == "g12a" ]]; then
    run_update_return rreg 4 0xff800228
    value=0x`echo $update_return|grep -i ff800228|awk -F: '{gsub(/ /,"",$2);print $2}'`
    print_debug "0xff800228      = $value"
@@ -501,7 +512,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
       done
    fi
    if [[ -z $dtb_file ]]; then
-      if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
+      if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]] || [[ $soc == "g12a" ]]; then
          for i in $(seq 0 `expr $nb_partitions - 1`)
          do
          if [[ "${partitions_name[$i]}" == "_aml_dtb" ]]; then
@@ -556,8 +567,12 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
    fi
 
    print_debug ""
-   check_file "$bl2"
-   check_file "$tpl"
+   if [[ ! -z "$bl2" ]]; then
+      check_file "$bl2"
+   fi
+   if [[ ! -z "$tpl" ]]; then
+      check_file "$tpl"
+   fi
 
    echo -n "Initializing ddr "
    if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
@@ -580,6 +595,15 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
       if [[ $usb_protocol == "8" ]]; then
          run_update_assert run $bl2_params
       fi
+   fi
+   if [[ $soc == "g12a" ]]; then
+      run_update_assert write "$tpl" $ddr_load 0x10000
+      run_update_assert run $ddr_load
+      for i in {1..8}
+      do
+          echo -n "."
+          sleep 1
+      done
    fi
    if [[ $soc == "m8" ]]; then
       for i in {1..6}
@@ -607,6 +631,9 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
       else
          run_update_assert run $uboot_run
       fi
+   fi
+   if [[ $soc == "g12a" ]]; then
+      run_update_assert bl2_boot "$tpl"
    fi
    if [[ $soc == "m8" ]]; then
       run_update_assert write "$fip" $bin_params
@@ -644,7 +671,7 @@ if [[ "$parts" == "all" ]] || [[ "$parts" == "bootloader" ]] || [[ "$parts" == "
    run_update bulkcmd "echo 12345"
    #run_update bulkcmd "low_power"
 
-   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]]; then
+   if [[ $soc == "gxl" ]] || [[ $soc == "axg" ]] || [[ $soc == "txlx" ]] || [[ $soc == "g12a" ]]; then
       if [[ $secured == 1 ]]; then
          check_file "$tmp_dir/$dtb_meson1_enc_filename"
          run_update_assert mwrite "$tmp_dir/$dtb_meson1_enc_filename" mem dtb normal
@@ -717,7 +744,7 @@ fi
 #   chip_major=$(($value & 0xff))
 #   printf "Chipset version $GREEN[%X:%X - %X:%X]$RESET\n" $chip_major $chip_minor $chip_pack $chip_misc
 #fi
-#if [[ "$soc" == "axg" ]] || [[ $soc == "txlx" ]]; then
+#if [[ "$soc" == "axg" ]] || [[ $soc == "txlx" ]] || [[ $soc == "g12a" ]]; then
 #   run_update_return rreg 4 0xff800220
 #   value=0x`echo $update_return|awk -F: '{gsub(/ /,"",$2);print $2}'`
 #   print_debug "0xff800220 = $value"

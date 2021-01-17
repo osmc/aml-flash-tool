@@ -432,25 +432,25 @@ echo -e $GREEN"[OK]"$RESET
 print_debug ""
 print_debug "Parsing image configuration files"
 print_debug "---------------------------------"
-platform_conf_name=`awk '/sub_type=\"platform\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+platform_conf_name=`awk '/sub_type="platform"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "platform_conf_name  = $platform_conf_name"
-ddr_filename=`awk '/sub_type=\"DDR\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+ddr_filename=`awk '/sub_type="DDR"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "ddr_filename        = $ddr_filename"
-uboot_filename=`awk '/sub_type=\"UBOOT\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+uboot_filename=`awk '/sub_type="UBOOT"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "uboot_filename      = $uboot_filename"
-uboot_comp_filename=`awk '/sub_type=\"UBOOT_COMP\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+uboot_comp_filename=`awk '/sub_type="UBOOT_COMP"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "uboot_comp_filename = $uboot_comp_filename"
-dtb_meson_filename=`awk '/sub_type=\"meson\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+dtb_meson_filename=`awk '/sub_type="meson"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "dtb_meson_filename  = $dtb_meson_filename"
-dtb_meson1_filename=`awk '/sub_type=\"meson1\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+dtb_meson1_filename=`awk '/sub_type="meson1"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "dtb_meson1_filename = $dtb_meson1_filename"
-dtb_meson1_enc_filename=`awk '/sub_type=\"meson1_ENC\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+dtb_meson1_enc_filename=`awk '/sub_type="meson1_ENC"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "dtb_meson1_enc_filename = $dtb_meson1_enc_filename"
-ddr_enc_filename=`awk '/sub_type=\"DDR_ENC\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+ddr_enc_filename=`awk '/sub_type="DDR_ENC"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "ddr_enc_filename    = $ddr_enc_filename"
-uboot_enc_filename=`awk '/sub_type=\"UBOOT_ENC\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+uboot_enc_filename=`awk '/sub_type="UBOOT_ENC"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "uboot_enc_filename  = $uboot_enc_filename"
-keys_filename=`awk '/sub_type=\"keys\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
+keys_filename=`awk '/sub_type="keys"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg`
 print_debug "keys_filename       = $keys_filename"
 platform=`awk '/Platform:/{gsub("Platform:","",$1); print $1}' $tmp_dir/$platform_conf_name`
 print_debug "platform            = $platform"
@@ -474,11 +474,11 @@ uboot_run=`awk '/UbootRun:/{gsub("UbootRun:","",$1); print $1}' $tmp_dir/$platfo
 print_debug "uboot_run           = $uboot_run"
 bl2_params=`awk '/bl2ParaAddr=/{gsub("bl2ParaAddr=","",$1); print $1}' $tmp_dir/$platform_conf_name`
 print_debug "bl2_params          = $bl2_params"
-nb_partitions=`awk '/main_type=\"PARTITION\"/{print}' $tmp_dir/image.cfg|wc -l`
+nb_partitions=`awk '/main_type="PARTITION"/{print}' $tmp_dir/image.cfg|wc -l`
 print_debug "nb_partitions       = $nb_partitions"
-partitions_file=( `awk '/main_type=\"PARTITION\"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg | xargs` )
-partitions_name=( `awk '/main_type=\"PARTITION\"/{gsub("sub_type=","",$3); gsub(/"/,"",$3); print $3}' $tmp_dir/image.cfg | xargs` )
-partitions_type=( `awk '/main_type=\"PARTITION\"/{gsub("file_type=","",$4); gsub(/"/,"",$4); print $4}' $tmp_dir/image.cfg | xargs` )
+partitions_file=( `awk '/main_type="PARTITION"/{gsub("file=","",$1); gsub(/"/,"",$1); print $1}' $tmp_dir/image.cfg | xargs` )
+partitions_name=( `awk '/main_type="PARTITION"/{gsub("sub_type=","",$3); gsub(/"/,"",$3); print $3}' $tmp_dir/image.cfg | xargs` )
+partitions_type=( `awk '/main_type="PARTITION"/{gsub("file_type=","",$4); gsub(/"/,"",$4); print $4}' $tmp_dir/image.cfg | xargs` )
 print_debug ""
 print_debug "Partition list"
 print_debug "--------------"
